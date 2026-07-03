@@ -123,6 +123,8 @@
       <div class="nav-section">Financeiro</div>
       <div class="nav-item" onclick="ir('receber',this)"><i class="ti ti-trending-up"></i> Contas a receber</div>
       <div class="nav-item" onclick="ir('pagar',this)"><i class="ti ti-trending-down"></i> Contas a pagar</div>
+      <div class="nav-section">Relatórios</div>
+      <div class="nav-item" onclick="ir('relatorios',this)"><i class="ti ti-report"></i> Relatórios</div>
       <div class="nav-section">Sistema</div>
       <div class="nav-item" onclick="ir('configuracoes',this)"><i class="ti ti-settings"></i> Configurações</div>
     </nav>
@@ -195,7 +197,7 @@ document.getElementById('login-btn').onclick = login;
 document.getElementById('login-senha').onkeydown = e => { if(e.key==='Enter') login(); };
 
 // NAVEGAÇÃO
-const titulos = { dashboard:'Dashboard', clientes:'Clientes', demandas:'Demandas', receber:'Contas a receber', pagar:'Contas a pagar', configuracoes:'Configurações' };
+const titulos = { dashboard:'Dashboard', clientes:'Clientes', demandas:'Demandas', receber:'Contas a receber', pagar:'Contas a pagar', relatorios:'Relatórios', configuracoes:'Configurações' };
 function ir(pag, el) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   if (el) el.classList.add('active');
@@ -203,7 +205,7 @@ function ir(pag, el) {
   document.getElementById('page-title').textContent = titulos[pag] || pag;
   const c = document.getElementById('content');
   c.innerHTML = '<div style="text-align:center;padding:40px;color:#9CA3AF"><i class="ti ti-loader" style="font-size:32px"></i><br>Carregando...</div>';
-  setTimeout(() => { if(pag==='dashboard') pagDashboard(); else if(pag==='clientes') pagClientes(); else if(pag==='demandas') pagDemandas(); else if(pag==='receber') pagReceber(); else if(pag==='pagar') pagPagar(); else if(pag==='configuracoes') pagConfig(); }, 200);
+  setTimeout(() => { if(pag==='dashboard') pagDashboard(); else if(pag==='clientes') pagClientes(); else if(pag==='demandas') pagDemandas(); else if(pag==='receber') pagReceber(); else if(pag==='pagar') pagPagar(); else if(pag==='relatorios') pagRelatorios(); else if(pag==='configuracoes') pagConfig(); }, 200);
 }
 
 function toast(msg, tipo='') { const t=document.getElementById('toast'); t.textContent=msg; t.className=`toast show ${tipo}`; setTimeout(()=>t.className='toast',3000); }
@@ -212,15 +214,35 @@ function fmt(v) { return 'R$ '+(v||0).toLocaleString('pt-BR',{minimumFractionDig
 // DASHBOARD
 async function pagDashboard() {
   const clientes = await api('clientes?select=id,razao_social,honorario&status=eq.Ativo');
+  const clienteObs = await api('cliente_obrigacoes?select=cliente_id,obrigacao_id');
+  const demandasFeitas = await api(`demandas?mes=eq.${mesSel}&ano=eq.${anoSel}&feito=eq.true&select=cliente_id,obrigacao_id`);
+  const feitoSet = new Set(demandasFeitas.map(d => d.cliente_id+'-'+d.obrigacao_id));
+  const totalDemandas = clienteObs.length;
+  const feitos = clienteObs.filter(co => feitoSet.has(co.cliente_id+'-'+co.obrigacao_id)).length;
+  const pendentes = totalDemandas - feitos;
+  const pctFeito = totalDemandas > 0 ? Math.round(feitos/totalDemandas*100) : 0;
+  const pctPendente = totalDemandas > 0 ? 100 - pctFeito : 0;
   const c = document.getElementById('content');
   const total = clientes.reduce((s,x)=>s+(x.honorario||0),0);
   c.innerHTML = `
     <div style="margin-bottom:24px"><div style="font-size:20px;font-weight:600;color:var(--navy);margin-bottom:4px">Bem-vinda, Natana! 👋</div><div style="font-size:13px;color:#9CA3AF">Seu sistema está funcionando! <span style="color:var(--gold);font-weight:500">Comece cadastrando seus clientes.</span></div></div>
     <div class="grid-4">
       <div class="metric"><div class="metric-label">Clientes ativos</div><div class="metric-value">${clientes.length}</div></div>
-      <div class="metric"><div class="metric-label">Demandas do mês</div><div class="metric-value">0</div><div class="metric-sub">Configure as obrigações</div></div>
+      <div class="metric"><div class="metric-label">Demandas do mês</div><div class="metric-value">${totalDemandas}</div><div class="metric-sub">${meses[mesSel]}/${anoSel}</div></div>
       <div class="metric"><div class="metric-label">Honorários mensais</div><div class="metric-value">${fmt(total)}</div></div>
       <div class="metric"><div class="metric-label">Sistema</div><div class="metric-value" style="font-size:14px;color:var(--success)">✅ Online</div></div>
+    </div>
+    <div class="grid-2">
+      <div class="metric" style="border-left-color:var(--warning)">
+        <div class="metric-label">Demandas a fazer</div>
+        <div class="metric-value" style="color:var(--warning)">${pendentes}</div>
+        <div class="metric-sub">${pctPendente}% do total pendente</div>
+      </div>
+      <div class="metric" style="border-left-color:var(--success)">
+        <div class="metric-label">Demandas concluídas</div>
+        <div class="metric-value" style="color:var(--success)">${feitos}</div>
+        <div class="metric-sub">${pctFeito}% do total concluído</div>
+      </div>
     </div>
     <div class="card"><div class="card-header"><div class="card-title">🚀 Próximos passos</div></div><div class="card-body"><div style="display:flex;flex-direction:column;gap:10px;font-size:13px;color:#4B5563"><div>1️⃣ Cadastre as obrigações em <strong>Configurações</strong></div><div>2️⃣ Cadastre seus clientes com honorários e obrigações</div><div>3️⃣ Acompanhe as demandas mensais e dê baixa ao concluir</div><div>4️⃣ Controle honorários e despesas no financeiro</div></div></div></div>`;
 }
@@ -707,6 +729,60 @@ async function excluirObrig(id, nome) {
   await api(`obrigacoes?id=eq.${id}`,'DELETE');
   toast('Obrigação excluída!','success');
   pagConfig();
+}
+
+// RELATÓRIOS
+async function pagRelatorios() {
+  const clientes = await api('clientes?select=id,razao_social,status&order=razao_social');
+  const clienteObs = await api('cliente_obrigacoes?select=cliente_id,obrigacao_id');
+  const demandasFeitas = await api(`demandas?mes=eq.${mesSel}&ano=eq.${anoSel}&feito=eq.true&select=cliente_id,obrigacao_id`);
+  const feitoSet = new Set(demandasFeitas.map(d => d.cliente_id+'-'+d.obrigacao_id));
+  const totalDemandas = clienteObs.length;
+  const totalFeitas = clienteObs.filter(co => feitoSet.has(co.cliente_id+'-'+co.obrigacao_id)).length;
+  const pctGeral = totalDemandas > 0 ? Math.round(totalFeitas/totalDemandas*100) : 0;
+
+  const porCliente = clientes.map(cl => {
+    const obsCliente = clienteObs.filter(co => co.cliente_id === cl.id);
+    const total = obsCliente.length;
+    const feitas = obsCliente.filter(co => feitoSet.has(co.cliente_id+'-'+co.obrigacao_id)).length;
+    const pct = total > 0 ? Math.round(feitas/total*100) : 0;
+    return { cl, total, feitas, pct };
+  });
+
+  const c = document.getElementById('content');
+  c.innerHTML = `
+    <div class="page-header">
+      <div class="page-header-title">Relatórios — ${meses[mesSel]} ${anoSel}</div>
+      <div style="display:flex;gap:8px">
+        <select onchange="mesSel=parseInt(this.value);pagRelatorios()" style="height:36px;padding:0 10px;border-radius:8px;border:1px solid #E5E7EB;font-size:13px">
+          ${meses.map((m,i)=>`<option value="${i}" ${i===mesSel?'selected':''}>${m}</option>`).join('')}
+        </select>
+        <input type="number" value="${anoSel}" onchange="anoSel=parseInt(this.value);pagRelatorios()" style="height:36px;width:80px;padding:0 10px;border-radius:8px;border:1px solid #E5E7EB;font-size:13px">
+        <button class="btn btn-navy" onclick="window.print()"><i class="ti ti-printer"></i> Imprimir</button>
+      </div>
+    </div>
+    <div class="grid-4">
+      <div class="metric"><div class="metric-label">Total de clientes</div><div class="metric-value">${clientes.length}</div></div>
+      <div class="metric"><div class="metric-label">Total de demandas</div><div class="metric-value">${totalDemandas}</div></div>
+      <div class="metric"><div class="metric-label">Concluídas</div><div class="metric-value" style="color:var(--success)">${totalFeitas} <span style="font-size:13px;color:#9CA3AF">(${pctGeral}%)</span></div></div>
+      <div class="metric"><div class="metric-label">Pendentes</div><div class="metric-value" style="color:var(--danger)">${totalDemandas-totalFeitas}</div></div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Demandas por cliente</div></div>
+      <table class="table">
+        <thead><tr><th>Cliente</th><th>Total de obrigações</th><th>Concluídas</th><th>Pendentes</th><th>%</th></tr></thead>
+        <tbody>
+          ${porCliente.length === 0 ? '<tr><td colspan="5" style="text-align:center;padding:24px;color:#9CA3AF">Nenhum dado disponível.</td></tr>' :
+          porCliente.map(p => `<tr>
+            <td style="font-weight:500">${p.cl.razao_social}${p.cl.status!=='Ativo'?` <span class="badge badge-warning">${p.cl.status}</span>`:''}</td>
+            <td>${p.total}</td>
+            <td>${p.feitas}</td>
+            <td>${p.total-p.feitas}</td>
+            <td><span class="badge ${p.pct===100?'badge-success':p.pct>0?'badge-warning':'badge-danger'}">${p.pct}%</span></td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
 }
 
 function fecharModal(id) { document.getElementById(id).classList.remove('show'); }

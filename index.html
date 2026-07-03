@@ -72,6 +72,7 @@
     .btn-danger { color: var(--danger); border-color: #fca5a5; }
     .btn-danger:hover { background: #fee2e2; }
     .btn-success { background: var(--success); color: #fff; border-color: var(--success); }
+    .btn-warning { background: var(--warning); color: #fff; border-color: var(--warning); }
     .btn-sm { padding: 5px 10px; font-size: 12px; }
     .form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     .form-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
@@ -162,9 +163,39 @@ document.getElementById('topbar-mes').textContent = meses[hoje.getMonth()] + ' '
 async function api(path, method='GET', body=null) {
   const opts = { method, headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + TOKEN, 'Content-Type': 'application/json', 'Prefer': 'return=representation' } };
   if (body) opts.body = JSON.stringify(body);
-  const r = await fetch(SB_URL + '/rest/v1/' + path, opts);
+  let r = await fetch(SB_URL + '/rest/v1/' + path, opts);
+  if (r.status === 401) {
+    const renovou = await renovarToken();
+    if (renovou) {
+      opts.headers['Authorization'] = 'Bearer ' + TOKEN;
+      r = await fetch(SB_URL + '/rest/v1/' + path, opts);
+    } else {
+      logout();
+      return [];
+    }
+  }
   if (r.status === 204) return [];
   return r.json();
+}
+
+async function renovarToken() {
+  const refresh = localStorage.getItem('sb_refresh');
+  if (!refresh) return false;
+  try {
+    const r = await fetch(SB_URL + '/auth/v1/token?grant_type=refresh_token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': SB_KEY },
+      body: JSON.stringify({ refresh_token: refresh })
+    });
+    const d = await r.json();
+    if (d.access_token) {
+      TOKEN = d.access_token;
+      localStorage.setItem('sb_token', TOKEN);
+      if (d.refresh_token) localStorage.setItem('sb_refresh', d.refresh_token);
+      return true;
+    }
+    return false;
+  } catch(e) { return false; }
 }
 
 async function login() {
@@ -184,12 +215,13 @@ async function login() {
     if (d.access_token) {
       TOKEN = d.access_token;
       localStorage.setItem('sb_token', TOKEN);
+      if (d.refresh_token) localStorage.setItem('sb_refresh', d.refresh_token);
       iniciar();
     } else { erro.style.display = 'block'; btn.textContent = 'Entrar'; btn.disabled = false; }
   } catch(e) { erro.style.display = 'block'; btn.textContent = 'Entrar'; btn.disabled = false; }
 }
 
-function logout() { localStorage.removeItem('sb_token'); TOKEN = ''; document.getElementById('app').style.display='none'; document.getElementById('login-page').style.display='flex'; }
+function logout() { localStorage.removeItem('sb_token'); localStorage.removeItem('sb_refresh'); TOKEN = ''; document.getElementById('app').style.display='none'; document.getElementById('login-page').style.display='flex'; }
 function iniciar() { document.getElementById('login-page').style.display='none'; document.getElementById('app').style.display='flex'; ir('dashboard'); }
 
 document.getElementById('login-btn').onclick = login;
@@ -426,7 +458,7 @@ async function excluirCliente(id, nome) {
 
 // DEMANDAS
 async function pagDemandas() {
-  const obrigacoes = await api('obrigacoes?order=nome');
+  const obrigacoes = await api('obrigacoes?order=prazo');
   const c = document.getElementById('content');
   c.innerHTML = `
     <div class="page-header">
@@ -450,9 +482,37 @@ async function pagDemandas() {
                 <div style="font-size:12px;color:#9CA3AF">${ob.prazo} · ${ob.periodicidade} · ${ob.regime}</div>
               </div>
             </div>
-            <div style="font-size:13px;color:#9CA3AF">Clique para ver clientes →</div>
+            <div style="display:flex;align-items:center;gap:14px">
+              <div style="font-size:13px;color:#9CA3AF">Clique para ver clientes →</div>
+              <div style="display:flex;gap:6px" onclick="event.stopPropagation()">
+                <button class="btn btn-sm" onclick="editarObrig('${ob.id}')"><i class="ti ti-edit"></i></button>
+                <button class="btn btn-sm btn-danger" onclick="excluirObrig('${ob.id}','${ob.nome}')"><i class="ti ti-trash"></i></button>
+              </div>
+            </div>
           </div>
         </div>`).join('')}
+    </div>
+    ${modalObrigHTML()}`;
+}
+
+function modalObrigHTML() {
+  return `
+    <div class="overlay" id="ov-obrig">
+      <div class="modal" style="width:440px">
+        <div class="modal-title" id="modal-obrig-titulo">Nova obrigação</div>
+        <div class="modal-sub">Cadastre uma obrigação acessória</div>
+        <div class="field"><label>Nome *</label><input id="ob-nome" placeholder="Ex: PGDAS, DCTF Web..."></div>
+        <div class="form-grid-2">
+          <div class="field"><label>Prazo</label><input id="ob-prazo" placeholder="Ex: Dia 20"></div>
+          <div class="field"><label>Periodicidade</label><select id="ob-period"><option>Mensal</option><option>Anual</option></select></div>
+          <div class="field"><label>Regime</label><select id="ob-regime"><option>Todos</option><option>Simples Nacional</option><option>LP / LR</option></select></div>
+        </div>
+        <div class="modal-footer">
+          <input type="hidden" id="ob-id">
+          <button class="btn" onclick="fecharModal('ov-obrig')">Cancelar</button>
+          <button class="btn btn-navy" onclick="salvarObrig()"><i class="ti ti-check"></i> Salvar</button>
+        </div>
+      </div>
     </div>`;
 }
 
@@ -487,10 +547,10 @@ async function verDemanda(obId, obNome) {
             return `<tr>
               <td style="font-weight:500">${co.clientes?.razao_social||'—'}</td>
               <td><span class="badge ${feito?'badge-success':'badge-warning'}">${feito?'Concluído':'Pendente'}</span></td>
-              <td>${feito
-                ? `<button class="btn btn-sm btn-danger" onclick="toggleDemanda('${co.cliente_id}','${obId}',false,'${obNome}')"><i class="ti ti-refresh"></i> Desfazer</button>`
-                : `<button class="btn btn-sm btn-success" onclick="toggleDemanda('${co.cliente_id}','${obId}',true,'${obNome}')"><i class="ti ti-check"></i> Feito!</button>`
-              }</td>
+              <td><div style="display:flex;gap:6px">
+                <button class="btn btn-sm ${feito?'btn-success':''}" onclick="toggleDemanda('${co.cliente_id}','${obId}',true,'${obNome}')"><i class="ti ti-check"></i> Feito</button>
+                <button class="btn btn-sm ${!feito?'btn-warning':''}" onclick="toggleDemanda('${co.cliente_id}','${obId}',false,'${obNome}')"><i class="ti ti-clock"></i> Pendente</button>
+              </div></td>
             </tr>`;
           }).join('')}
         </tbody>
@@ -671,7 +731,7 @@ async function pagarDespesa(id, nome) {
 
 // CONFIGURAÇÕES
 async function pagConfig() {
-  const obrigacoes = await api('obrigacoes?order=nome');
+  const obrigacoes = await api('obrigacoes?order=prazo');
   const c = document.getElementById('content');
   c.innerHTML = `
     <div class="page-header"><div class="page-header-title">Configurações</div></div>
@@ -689,7 +749,10 @@ async function pagConfig() {
             <td>${ob.prazo}</td>
             <td>${ob.periodicidade}</td>
             <td><span class="badge badge-info">${ob.regime}</span></td>
-            <td><button class="btn btn-sm btn-danger" onclick="excluirObrig('${ob.id}','${ob.nome}')"><i class="ti ti-trash"></i></button></td>
+            <td><div style="display:flex;gap:6px">
+              <button class="btn btn-sm" onclick="editarObrig('${ob.id}')"><i class="ti ti-edit"></i></button>
+              <button class="btn btn-sm btn-danger" onclick="excluirObrig('${ob.id}','${ob.nome}')"><i class="ti ti-trash"></i></button>
+            </div></td>
           </tr>`).join('')}
         </tbody>
       </table>
@@ -701,40 +764,47 @@ async function pagConfig() {
         <button class="btn btn-navy" id="btn-backup" onclick="baixarBackup()"><i class="ti ti-download"></i> Baixar backup completo</button>
       </div>
     </div>
-    <div class="overlay" id="ov-obrig">
-      <div class="modal" style="width:440px">
-        <div class="modal-title">Nova obrigação</div>
-        <div class="modal-sub">Cadastre uma obrigação acessória</div>
-        <div class="field"><label>Nome *</label><input id="ob-nome" placeholder="Ex: PGDAS, DCTF Web..."></div>
-        <div class="form-grid-2">
-          <div class="field"><label>Prazo</label><input id="ob-prazo" placeholder="Ex: Dia 20"></div>
-          <div class="field"><label>Periodicidade</label><select id="ob-period"><option>Mensal</option><option>Anual</option></select></div>
-          <div class="field"><label>Regime</label><select id="ob-regime"><option>Todos</option><option>Simples Nacional</option><option>LP / LR</option></select></div>
-        </div>
-        <div class="modal-footer">
-          <button class="btn" onclick="fecharModal('ov-obrig')">Cancelar</button>
-          <button class="btn btn-navy" onclick="salvarObrig()"><i class="ti ti-check"></i> Salvar</button>
-        </div>
-      </div>
-    </div>`;
+    ${modalObrigHTML()}`;
 }
 
-function abrirModalObrig() { document.getElementById('ov-obrig').classList.add('show'); }
+function abrirModalObrig() {
+  document.getElementById('ob-id').value = '';
+  document.getElementById('modal-obrig-titulo').textContent = 'Nova obrigação';
+  ['ob-nome','ob-prazo'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('ob-period').value = 'Mensal';
+  document.getElementById('ob-regime').value = 'Todos';
+  document.getElementById('ov-obrig').classList.add('show');
+}
+
+async function editarObrig(id) {
+  const data = await api(`obrigacoes?id=eq.${id}`);
+  const ob = data[0];
+  if (!ob) return;
+  document.getElementById('ob-id').value = ob.id;
+  document.getElementById('modal-obrig-titulo').textContent = 'Editar obrigação';
+  document.getElementById('ob-nome').value = ob.nome||'';
+  document.getElementById('ob-prazo').value = ob.prazo||'';
+  document.getElementById('ob-period').value = ob.periodicidade||'Mensal';
+  document.getElementById('ob-regime').value = ob.regime||'Todos';
+  document.getElementById('ov-obrig').classList.add('show');
+}
 
 async function salvarObrig() {
+  const id = document.getElementById('ob-id').value;
   const nome = document.getElementById('ob-nome').value.trim();
   if (!nome) { toast('Digite o nome da obrigação!','error'); return; }
-  await api('obrigacoes','POST',{ nome, prazo: document.getElementById('ob-prazo').value, periodicidade: document.getElementById('ob-period').value, regime: document.getElementById('ob-regime').value });
+  const dados = { nome, prazo: document.getElementById('ob-prazo').value, periodicidade: document.getElementById('ob-period').value, regime: document.getElementById('ob-regime').value };
+  if (id) { await api(`obrigacoes?id=eq.${id}`, 'PATCH', dados); } else { await api('obrigacoes','POST',dados); }
   fecharModal('ov-obrig');
-  toast('Obrigação cadastrada!','success');
-  pagConfig();
+  toast(id ? 'Obrigação atualizada!' : 'Obrigação cadastrada!','success');
+  document.getElementById('demandas-content') ? pagDemandas() : pagConfig();
 }
 
 async function excluirObrig(id, nome) {
   if (!confirm(`Excluir "${nome}"?`)) return;
-  await api(`obrigacoes?id=eq.${id}`,'DELETE');
+  await api(`obrigacoes?id=eq.${id}`, 'DELETE');
   toast('Obrigação excluída!','success');
-  pagConfig();
+  document.getElementById('demandas-content') ? pagDemandas() : pagConfig();
 }
 
 // BACKUP
@@ -764,7 +834,40 @@ async function baixarBackup() {
 }
 
 // RELATÓRIOS
+let relatorioTab = 'geral';
+let relatorioObrigId = '';
+
+function relTabBtn(id, label) {
+  return `<button class="btn btn-sm ${relatorioTab===id?'btn-navy':''}" onclick="relatorioTab='${id}';pagRelatorios()">${label}</button>`;
+}
+
 async function pagRelatorios() {
+  const c = document.getElementById('content');
+  c.innerHTML = `
+    <div class="page-header">
+      <div class="page-header-title">Relatórios — ${meses[mesSel]} ${anoSel}</div>
+      <div style="display:flex;gap:8px">
+        <select onchange="mesSel=parseInt(this.value);pagRelatorios()" style="height:36px;padding:0 10px;border-radius:8px;border:1px solid #E5E7EB;font-size:13px">
+          ${meses.map((m,i)=>`<option value="${i}" ${i===mesSel?'selected':''}>${m}</option>`).join('')}
+        </select>
+        <input type="number" value="${anoSel}" onchange="anoSel=parseInt(this.value);pagRelatorios()" style="height:36px;width:80px;padding:0 10px;border-radius:8px;border:1px solid #E5E7EB;font-size:13px">
+        <button class="btn btn-navy" onclick="window.print()"><i class="ti ti-printer"></i> Imprimir</button>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+      ${relTabBtn('geral','Visão geral')}
+      ${relTabBtn('demanda','Por demanda')}
+      ${relTabBtn('periodo','A vencer / Vencidas')}
+      ${relTabBtn('financeiro','Financeiro')}
+    </div>
+    <div id="relatorio-body"><div style="text-align:center;padding:40px;color:#9CA3AF"><i class="ti ti-loader" style="font-size:32px"></i><br>Carregando...</div></div>`;
+  if (relatorioTab === 'geral') renderRelatorioGeral();
+  else if (relatorioTab === 'demanda') renderRelatorioPorDemanda();
+  else if (relatorioTab === 'periodo') renderRelatorioPeriodo();
+  else if (relatorioTab === 'financeiro') renderRelatorioFinanceiro();
+}
+
+async function renderRelatorioGeral() {
   const clientes = await api('clientes?select=id,razao_social,status&order=razao_social');
   const clienteObs = await api('cliente_obrigacoes?select=cliente_id,obrigacao_id');
   const demandasFeitas = await api(`demandas?mes=eq.${mesSel}&ano=eq.${anoSel}&feito=eq.true&select=cliente_id,obrigacao_id`);
@@ -781,18 +884,8 @@ async function pagRelatorios() {
     return { cl, total, feitas, pct };
   });
 
-  const c = document.getElementById('content');
-  c.innerHTML = `
-    <div class="page-header">
-      <div class="page-header-title">Relatórios — ${meses[mesSel]} ${anoSel}</div>
-      <div style="display:flex;gap:8px">
-        <select onchange="mesSel=parseInt(this.value);pagRelatorios()" style="height:36px;padding:0 10px;border-radius:8px;border:1px solid #E5E7EB;font-size:13px">
-          ${meses.map((m,i)=>`<option value="${i}" ${i===mesSel?'selected':''}>${m}</option>`).join('')}
-        </select>
-        <input type="number" value="${anoSel}" onchange="anoSel=parseInt(this.value);pagRelatorios()" style="height:36px;width:80px;padding:0 10px;border-radius:8px;border:1px solid #E5E7EB;font-size:13px">
-        <button class="btn btn-navy" onclick="window.print()"><i class="ti ti-printer"></i> Imprimir</button>
-      </div>
-    </div>
+  const body = document.getElementById('relatorio-body');
+  body.innerHTML = `
     <div class="grid-4">
       <div class="metric"><div class="metric-label">Total de clientes</div><div class="metric-value">${clientes.length}</div></div>
       <div class="metric"><div class="metric-label">Total de demandas</div><div class="metric-value">${totalDemandas}</div></div>
@@ -814,6 +907,133 @@ async function pagRelatorios() {
           </tr>`).join('')}
         </tbody>
       </table>
+    </div>`;
+}
+
+async function renderRelatorioPorDemanda() {
+  const obrigacoes = await api('obrigacoes?order=prazo');
+  const body = document.getElementById('relatorio-body');
+  body.innerHTML = `
+    <div class="card">
+      <div class="card-body">
+        <div class="field" style="margin-bottom:0">
+          <label>Selecione a demanda</label>
+          <select id="rel-obrig-sel" onchange="relatorioObrigId=this.value;renderRelatorioPorDemandaLista()">
+            <option value="">Selecione...</option>
+            ${obrigacoes.map(ob=>`<option value="${ob.id}" ${ob.id===relatorioObrigId?'selected':''}>${ob.nome} (dia ${ob.prazo})</option>`).join('')}
+          </select>
+        </div>
+      </div>
+    </div>
+    <div id="rel-obrig-lista" style="margin-top:16px"></div>`;
+  if (relatorioObrigId) renderRelatorioPorDemandaLista();
+}
+
+async function renderRelatorioPorDemandaLista() {
+  const lista = document.getElementById('rel-obrig-lista');
+  if (!relatorioObrigId) { lista.innerHTML = ''; return; }
+  lista.innerHTML = '<div style="text-align:center;padding:24px;color:#9CA3AF">Carregando...</div>';
+  const clienteObs = await api(`cliente_obrigacoes?obrigacao_id=eq.${relatorioObrigId}&select=cliente_id,clientes(id,razao_social,status)`);
+  const demandas = await api(`demandas?obrigacao_id=eq.${relatorioObrigId}&mes=eq.${mesSel}&ano=eq.${anoSel}`);
+  const feitosIds = demandas.filter(d=>d.feito).map(d=>d.cliente_id);
+  const total = clienteObs.length;
+  const feitos = feitosIds.length;
+  const pct = total > 0 ? Math.round(feitos/total*100) : 0;
+  lista.innerHTML = `
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">${feitos}/${total} concluídos</div>
+        <div style="font-size:13px;color:#9CA3AF">${pct}%</div>
+      </div>
+      <table class="table">
+        <thead><tr><th>Cliente</th><th>Status</th></tr></thead>
+        <tbody>
+          ${total === 0 ? '<tr><td colspan="2" style="text-align:center;padding:24px;color:#9CA3AF">Nenhum cliente vinculado a esta obrigação.</td></tr>' :
+          clienteObs.map(co => {
+            const feito = feitosIds.includes(co.cliente_id);
+            return `<tr>
+              <td style="font-weight:500">${co.clientes?.razao_social||'—'}${co.clientes?.status&&co.clientes.status!=='Ativo'?` <span class="badge badge-warning">${co.clientes.status}</span>`:''}</td>
+              <td><span class="badge ${feito?'badge-success':'badge-warning'}">${feito?'Concluído':'Pendente'}</span></td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+async function renderRelatorioPeriodo() {
+  const obrigacoes = await api('obrigacoes?select=id,nome,prazo');
+  const clienteObs = await api('cliente_obrigacoes?select=cliente_id,obrigacao_id,clientes(razao_social)');
+  const demandasFeitas = await api(`demandas?mes=eq.${mesSel}&ano=eq.${anoSel}&feito=eq.true&select=cliente_id,obrigacao_id`);
+  const feitoSet = new Set(demandasFeitas.map(d => d.cliente_id+'-'+d.obrigacao_id));
+  const obMap = {};
+  obrigacoes.forEach(ob => obMap[ob.id] = ob);
+  const hoje = new Date();
+  const linhas = clienteObs.map(co => {
+    const ob = obMap[co.obrigacao_id];
+    if (!ob) return null;
+    const dia = parseInt(ob.prazo) || 1;
+    const venc = new Date(anoSel, mesSel, dia);
+    const feito = feitoSet.has(co.cliente_id+'-'+co.obrigacao_id);
+    const status = feito ? 'Concluída' : (venc < hoje ? 'Vencida' : 'A vencer');
+    return { cliente: co.clientes?.razao_social || '—', obrigacao: ob.nome, venc, status };
+  }).filter(Boolean).sort((a,b) => a.venc - b.venc);
+
+  const vencidas = linhas.filter(l => l.status === 'Vencida').length;
+  const aVencer = linhas.filter(l => l.status === 'A vencer').length;
+  const concluidas = linhas.filter(l => l.status === 'Concluída').length;
+
+  const body = document.getElementById('relatorio-body');
+  body.innerHTML = `
+    <div class="grid-4" style="grid-template-columns:repeat(3,1fr)">
+      <div class="metric" style="border-left-color:var(--danger)"><div class="metric-label">Vencidas</div><div class="metric-value" style="color:var(--danger)">${vencidas}</div></div>
+      <div class="metric" style="border-left-color:var(--gold)"><div class="metric-label">A vencer</div><div class="metric-value" style="color:var(--gold)">${aVencer}</div></div>
+      <div class="metric" style="border-left-color:var(--success)"><div class="metric-label">Concluídas</div><div class="metric-value" style="color:var(--success)">${concluidas}</div></div>
+    </div>
+    <div class="card">
+      <table class="table">
+        <thead><tr><th>Cliente</th><th>Obrigação</th><th>Vencimento</th><th>Status</th></tr></thead>
+        <tbody>
+          ${linhas.length === 0 ? '<tr><td colspan="4" style="text-align:center;padding:24px;color:#9CA3AF">Nenhuma demanda no período.</td></tr>' :
+          linhas.map(l => `<tr>
+            <td style="font-weight:500">${l.cliente}</td>
+            <td>${l.obrigacao}</td>
+            <td>${String(l.venc.getDate()).padStart(2,'0')}/${String(l.venc.getMonth()+1).padStart(2,'0')}</td>
+            <td><span class="badge ${l.status==='Concluída'?'badge-success':l.status==='Vencida'?'badge-danger':'badge-warning'}">${l.status}</span></td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+async function renderRelatorioFinanceiro() {
+  const clientes = await api('clientes?select=id,status,honorario');
+  const pagamentosMes = await api(`honorarios_pagamentos?mes=eq.${mesSel}&ano=eq.${anoSel}&select=cliente_id,valor_recebido`);
+  const todosPagamentos = await api('honorarios_pagamentos?select=valor_recebido');
+  const despesas = await api('despesas?select=valor');
+
+  const totalClientes = clientes.length;
+  const clientesAtivos = clientes.filter(c => c.status === 'Ativo').length;
+  const faturamentoMes = clientes.filter(c => c.status === 'Ativo').reduce((s,c) => s+(c.honorario||0), 0);
+  const honorariosPagos = pagamentosMes.reduce((s,p) => s+(p.valor_recebido||0), 0);
+  const honorariosAberto = faturamentoMes - honorariosPagos;
+  const faturamentoTotal = todosPagamentos.reduce((s,p) => s+(p.valor_recebido||0), 0);
+  const totalDespesas = despesas.reduce((s,d) => s+(d.valor||0), 0);
+  const resultadoMes = honorariosPagos - totalDespesas;
+
+  const body = document.getElementById('relatorio-body');
+  body.innerHTML = `
+    <div class="grid-4">
+      <div class="metric"><div class="metric-label">Total de clientes</div><div class="metric-value">${totalClientes}</div></div>
+      <div class="metric"><div class="metric-label">Clientes ativos</div><div class="metric-value">${clientesAtivos}</div></div>
+      <div class="metric"><div class="metric-label">Faturamento do mês</div><div class="metric-value">${fmt(faturamentoMes)}</div></div>
+      <div class="metric"><div class="metric-label">Faturamento total (histórico)</div><div class="metric-value">${fmt(faturamentoTotal)}</div></div>
+    </div>
+    <div class="grid-4">
+      <div class="metric" style="border-left-color:var(--success)"><div class="metric-label">Honorários pagos (mês)</div><div class="metric-value" style="color:var(--success)">${fmt(honorariosPagos)}</div></div>
+      <div class="metric" style="border-left-color:var(--danger)"><div class="metric-label">Honorários em aberto (mês)</div><div class="metric-value" style="color:var(--danger)">${fmt(honorariosAberto)}</div></div>
+      <div class="metric"><div class="metric-label">Despesas do mês</div><div class="metric-value">${fmt(totalDespesas)}</div></div>
+      <div class="metric"><div class="metric-label">Resultado do mês</div><div class="metric-value" style="color:${resultadoMes>=0?'var(--success)':'var(--danger)'}">${fmt(resultadoMes)}</div></div>
     </div>`;
 }
 

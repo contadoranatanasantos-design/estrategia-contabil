@@ -191,7 +191,6 @@ async function login() {
 
 function logout() { localStorage.removeItem('sb_token'); TOKEN = ''; document.getElementById('app').style.display='none'; document.getElementById('login-page').style.display='flex'; }
 function iniciar() { document.getElementById('login-page').style.display='none'; document.getElementById('app').style.display='flex'; ir('dashboard'); }
-if (TOKEN) iniciar();
 
 document.getElementById('login-btn').onclick = login;
 document.getElementById('login-senha').onkeydown = e => { if(e.key==='Enter') login(); };
@@ -695,6 +694,13 @@ async function pagConfig() {
         </tbody>
       </table>
     </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Backup de dados</div></div>
+      <div class="card-body">
+        <div style="font-size:13px;color:#4B5563;margin-bottom:12px">Baixe uma cópia completa de todos os dados do sistema (clientes, obrigações, demandas, financeiro). Recomendado baixar periodicamente e guardar o arquivo no Google Drive ou outro local seguro.</div>
+        <button class="btn btn-navy" id="btn-backup" onclick="baixarBackup()"><i class="ti ti-download"></i> Baixar backup completo</button>
+      </div>
+    </div>
     <div class="overlay" id="ov-obrig">
       <div class="modal" style="width:440px">
         <div class="modal-title">Nova obrigação</div>
@@ -729,6 +735,32 @@ async function excluirObrig(id, nome) {
   await api(`obrigacoes?id=eq.${id}`,'DELETE');
   toast('Obrigação excluída!','success');
   pagConfig();
+}
+
+// BACKUP
+async function baixarBackup() {
+  const btn = document.getElementById('btn-backup');
+  const textoOriginal = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader"></i> Gerando backup...';
+  try {
+    const tabelas = ['clientes','obrigacoes','cliente_obrigacoes','demandas','categorias','grupos_despesa','despesas','honorarios_pagamentos','despesas_pagamentos'];
+    const backup = { gerado_em: new Date().toISOString() };
+    for (const t of tabelas) { backup[t] = await api(`${t}?select=*`); }
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `backup-estrategia-contabil-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    toast('Backup baixado com sucesso!','success');
+  } catch (e) {
+    toast('Erro ao gerar backup. Tente novamente.','error');
+  } finally {
+    btn.disabled = false; btn.innerHTML = textoOriginal;
+  }
 }
 
 // RELATÓRIOS
@@ -786,6 +818,8 @@ async function pagRelatorios() {
 }
 
 function fecharModal(id) { document.getElementById(id).classList.remove('show'); }
+
+if (TOKEN) iniciar();
 </script>
 </body>
 </html>

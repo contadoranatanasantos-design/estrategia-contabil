@@ -24,7 +24,7 @@
     .login-error { color: var(--danger); font-size: 13px; margin-top: 12px; padding: 8px 12px; background: #fee2e2; border-radius: var(--radius); display: none; }
     .app { display: flex; height: 100vh; background: var(--surface-0); }
     .sidebar { width: 230px; min-width: 230px; background: var(--navy); display: flex; flex-direction: column; }
-    .logo-area { padding: 16px; background: #fff; display: flex; align-items: center; justify-content: center; }
+    .logo-area { padding: 20px 16px 18px; border-bottom: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: center; }
     .logo-area img { width: 140px; }
     .nav { padding: 16px 10px; flex: 1; overflow-y: auto; }
     .nav-section { font-size: 10px; color: rgba(255,255,255,0.3); text-transform: uppercase; letter-spacing: 1px; padding: 12px 12px 4px; }
@@ -114,7 +114,7 @@
 
 <div id="app" class="app" style="display:none">
   <div class="sidebar">
-    <div class="logo-area"><img src="logo.png" alt="Estratégia Contábil"></div>
+    <div class="logo-area"><img src="logo-branco.png" alt="Estratégia Contábil"></div>
     <nav class="nav">
       <div class="nav-section">Principal</div>
       <div class="nav-item active" onclick="ir('dashboard',this)"><i class="ti ti-layout-dashboard"></i> Dashboard</div>
@@ -1230,13 +1230,8 @@ async function renderRelatorioAniversariantes() {
 
 async function enviarParabens(i) {
   const { numero, mensagem } = window._aniversariantesMsgs[i];
-  try {
-    await navigator.clipboard.writeText(mensagem);
-    toast('Mensagem copiada! Cole (Ctrl+V) na conversa que vai abrir.', 'success');
-  } catch (e) {
-    toast('Não consegui copiar automaticamente. Copie a mensagem manualmente.', 'error');
-  }
-  window.open(`https://wa.me/${numero}`, '_blank');
+  const texto = encodeURIComponent(mensagem);
+  window.open(`https://web.whatsapp.com/send?phone=${numero}&text=${texto}`, '_blank');
 }
 
 function fecharModal(id) { document.getElementById(id).classList.remove('show'); }

@@ -548,6 +548,7 @@ async function salvarCliente() {
   const id = document.getElementById('c-id').value;
   const razao = document.getElementById('c-razao').value.trim();
   if (!razao) { toast('Preencha a razão social!', 'error'); return; }
+  if (document.getElementById('socio-nome').value.trim()) adicionarSocioTemp();
   const dados = {
     razao_social: razao,
     nome_fantasia: document.getElementById('c-fantasia').value,

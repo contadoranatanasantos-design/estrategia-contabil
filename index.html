@@ -24,7 +24,7 @@
     .login-error { color: var(--danger); font-size: 13px; margin-top: 12px; padding: 8px 12px; background: #fee2e2; border-radius: var(--radius); display: none; }
     .app { display: flex; height: 100vh; background: var(--surface-0); }
     .sidebar { width: 230px; min-width: 230px; background: var(--navy); display: flex; flex-direction: column; }
-    .logo-area { padding: 20px 16px 18px; border-bottom: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: center; }
+    .logo-area { padding: 16px; background: #fff; display: flex; align-items: center; justify-content: center; }
     .logo-area img { width: 140px; }
     .nav { padding: 16px 10px; flex: 1; overflow-y: auto; }
     .nav-section { font-size: 10px; color: rgba(255,255,255,0.3); text-transform: uppercase; letter-spacing: 1px; padding: 12px 12px 4px; }
@@ -1211,7 +1211,7 @@ async function renderRelatorioAniversariantes() {
           aniversariantes.map(a => {
             const telefone = (a.clientes?.telefone||'').replace(/\D/g,'');
             const numeroWhats = telefone ? (telefone.startsWith('55') ? telefone : '55'+telefone) : '';
-            const mensagem = encodeURIComponent(`\u{1F382} Hoje é um dia especial!\n\nA equipe Estratégia Contábil passou para desejar um feliz aniversário e dizer que não esquecemos dessa data tão importante. ✨\n\nDesejamos muita saúde, felicidade, conquistas e prosperidade em seu novo ciclo.\n\nÉ uma satisfação ter você conosco. Obrigado pela confiança e parceria!\n\nFeliz aniversário \u{1F381}\u{1F38A}\u{1F388}`);
+            const mensagem = encodeURIComponent(`⭐ Hoje é um dia especial!\n\nA equipe Estratégia Contábil passou para desejar um feliz aniversário e dizer que não esquecemos dessa data tão importante. ✨\n\nDesejamos muita saúde, felicidade, conquistas e prosperidade em seu novo ciclo.\n\nÉ uma satisfação ter você conosco. Obrigado pela confiança e parceria!\n\nFeliz aniversário ✨⭐❤️`);
             return `<tr>
               <td style="font-weight:500">${String(a.dia).padStart(2,'0')}/${mesNum}</td>
               <td>${a.nome}</td>

@@ -314,9 +314,11 @@ async function pagClientes() {
         <div class="modal-sub">Preencha os dados do cliente</div>
         <div class="modal-tabs">
           <div class="modal-tab active" onclick="tab(0,this)">Dados cadastrais</div>
-          <div class="modal-tab" onclick="tab(1,this)">Obrigações</div>
-          <div class="modal-tab" onclick="tab(2,this)">Honorários</div>
-          <div class="modal-tab" onclick="tab(3,this)">Observações</div>
+          <div class="modal-tab" onclick="tab(1,this)">Endereço/CNAE</div>
+          <div class="modal-tab" onclick="tab(2,this)">Sócios</div>
+          <div class="modal-tab" onclick="tab(3,this)">Obrigações</div>
+          <div class="modal-tab" onclick="tab(4,this)">Honorários</div>
+          <div class="modal-tab" onclick="tab(5,this)">Observações</div>
         </div>
         <div id="tab0">
           <div class="form-grid-2" style="margin-bottom:12px">
@@ -334,8 +336,30 @@ async function pagClientes() {
             <div class="field" style="grid-column:span 2"><label>E-mail</label><input type="email" id="c-email" placeholder="email@empresa.com.br"></div>
           </div>
         </div>
-        <div id="tab1" style="display:none"><div id="obrig-lista">Carregando obrigações...</div></div>
+        <div id="tab1" style="display:none">
+          <div class="form-grid-2" style="margin-bottom:12px">
+            <div class="field"><label>CEP</label><input id="c-cep" placeholder="00000-000"></div>
+            <div class="field"><label>UF</label><input id="c-uf" placeholder="UF" maxlength="2"></div>
+            <div class="field" style="grid-column:span 2"><label>Logradouro</label><input id="c-logradouro" placeholder="Rua, Avenida..."></div>
+            <div class="field"><label>Número</label><input id="c-numero" placeholder="Número"></div>
+            <div class="field"><label>Complemento</label><input id="c-complemento" placeholder="Complemento"></div>
+            <div class="field"><label>Bairro</label><input id="c-bairro" placeholder="Bairro"></div>
+            <div class="field"><label>Município</label><input id="c-municipio" placeholder="Cidade"></div>
+            <div class="field"><label>Código CNAE</label><input id="c-cnae-codigo" placeholder="0000-0/00"></div>
+            <div class="field" style="grid-column:span 2"><label>Descrição CNAE</label><input id="c-cnae-descricao" placeholder="Atividade principal"></div>
+          </div>
+        </div>
         <div id="tab2" style="display:none">
+          <div class="form-grid-2" style="margin-bottom:12px">
+            <div class="field" style="grid-column:span 2"><label>Nome completo do sócio</label><input id="socio-nome" placeholder="Nome completo"></div>
+            <div class="field"><label>CPF</label><input id="socio-cpf" placeholder="000.000.000-00"></div>
+            <div class="field"><label>Data de nascimento</label><input type="date" id="socio-nascimento"></div>
+          </div>
+          <button class="btn btn-navy btn-sm" onclick="adicionarSocioTemp()" style="margin-bottom:12px"><i class="ti ti-plus"></i> Adicionar sócio</button>
+          <div id="socios-lista"></div>
+        </div>
+        <div id="tab3" style="display:none"><div id="obrig-lista">Carregando obrigações...</div></div>
+        <div id="tab4" style="display:none">
           <div class="form-grid-2">
             <div class="field"><label>Honorário mensal (R$)</label><input type="number" id="c-honorario" placeholder="0,00"></div>
             <div class="field"><label>Dia de vencimento</label><select id="c-venc"><option>5</option><option>10</option><option>15</option><option>20</option><option>25</option></select></div>
@@ -343,7 +367,7 @@ async function pagClientes() {
             <div class="field"><label>Chave PIX</label><input id="c-pix" placeholder="CPF, e-mail ou chave"></div>
           </div>
         </div>
-        <div id="tab3" style="display:none">
+        <div id="tab5" style="display:none">
           <div class="field"><label>Observações</label><textarea id="c-obs" placeholder="Anotações importantes..."></textarea></div>
         </div>
         <div class="modal-footer">
@@ -357,7 +381,7 @@ async function pagClientes() {
 }
 
 function tab(idx, el) {
-  [0,1,2,3].forEach(i => { const t = document.getElementById('tab'+i); if(t) t.style.display = i===idx?'block':'none'; });
+  [0,1,2,3,4,5].forEach(i => { const t = document.getElementById('tab'+i); if(t) t.style.display = i===idx?'block':'none'; });
   document.querySelectorAll('.modal-tab').forEach(t => t.classList.remove('active'));
   el.classList.add('active');
 }
@@ -390,11 +414,29 @@ async function buscarCNPJ() {
     const abertura = document.getElementById('c-abertura');
     const tel = document.getElementById('c-tel');
     const regime = document.getElementById('c-regime');
+    const cep = document.getElementById('c-cep');
+    const uf = document.getElementById('c-uf');
+    const logradouro = document.getElementById('c-logradouro');
+    const numero = document.getElementById('c-numero');
+    const complemento = document.getElementById('c-complemento');
+    const bairro = document.getElementById('c-bairro');
+    const municipio = document.getElementById('c-municipio');
+    const cnaeCodigo = document.getElementById('c-cnae-codigo');
+    const cnaeDescricao = document.getElementById('c-cnae-descricao');
     if (razao && !razao.value.trim()) razao.value = d.razao_social || '';
     if (fantasia && !fantasia.value.trim()) fantasia.value = d.nome_fantasia || '';
     if (abertura && !abertura.value && d.data_inicio_atividade) abertura.value = d.data_inicio_atividade;
     if (tel && !tel.value.trim() && d.ddd_telefone_1) tel.value = d.ddd_telefone_1;
     if (regime && d.opcao_pelo_simples === true) regime.value = 'Simples Nacional';
+    if (cep && !cep.value.trim()) cep.value = d.cep || '';
+    if (uf && !uf.value.trim()) uf.value = d.uf || '';
+    if (logradouro && !logradouro.value.trim()) logradouro.value = d.logradouro || '';
+    if (numero && !numero.value.trim()) numero.value = d.numero || '';
+    if (complemento && !complemento.value.trim()) complemento.value = d.complemento || '';
+    if (bairro && !bairro.value.trim()) bairro.value = d.bairro || '';
+    if (municipio && !municipio.value.trim()) municipio.value = d.municipio || '';
+    if (cnaeCodigo && !cnaeCodigo.value.trim() && d.cnae_fiscal) cnaeCodigo.value = d.cnae_fiscal;
+    if (cnaeDescricao && !cnaeDescricao.value.trim() && d.cnae_fiscal_descricao) cnaeDescricao.value = d.cnae_fiscal_descricao;
     status.textContent = 'Dados preenchidos automaticamente ✓';
     status.style.color = 'var(--success)';
   } catch (e) {
@@ -403,13 +445,50 @@ async function buscarCNPJ() {
   }
 }
 
+let sociosTemp = [];
+
+function renderSociosLista() {
+  const lista = document.getElementById('socios-lista');
+  if (!lista) return;
+  if (sociosTemp.length === 0) { lista.innerHTML = '<p style="color:#9CA3AF;font-size:13px">Nenhum sócio adicionado ainda.</p>'; return; }
+  lista.innerHTML = sociosTemp.map((s, i) => `
+    <div class="obrig-check-item" style="cursor:default">
+      <div style="flex:1"><div style="font-size:13px;font-weight:500">${s.nome}</div><div style="font-size:11px;color:#9CA3AF">${s.cpf||'—'} · ${s.data_nascimento ? formatarDataBR(s.data_nascimento) : '—'}</div></div>
+      <button class="btn btn-sm btn-danger" onclick="removerSocioTemp(${i})"><i class="ti ti-trash"></i></button>
+    </div>`).join('');
+}
+
+function adicionarSocioTemp() {
+  const nome = document.getElementById('socio-nome').value.trim();
+  const cpf = document.getElementById('socio-cpf').value.trim();
+  const nascimento = document.getElementById('socio-nascimento').value;
+  if (!nome) { toast('Digite o nome do sócio!', 'error'); return; }
+  sociosTemp.push({ nome, cpf, data_nascimento: nascimento || null });
+  document.getElementById('socio-nome').value = '';
+  document.getElementById('socio-cpf').value = '';
+  document.getElementById('socio-nascimento').value = '';
+  renderSociosLista();
+}
+
+function removerSocioTemp(i) {
+  sociosTemp.splice(i, 1);
+  renderSociosLista();
+}
+
+function formatarDataBR(iso) {
+  const [y,m,d] = iso.split('-');
+  return `${d}/${m}/${y}`;
+}
+
 function abrirModalCliente() {
   document.getElementById('c-id').value = '';
   document.getElementById('modal-cliente-titulo').textContent = 'Novo cliente';
-  ['c-razao','c-fantasia','c-cnpj','c-ie','c-im','c-abertura','c-inicio','c-responsavel','c-tel','c-email','c-pix','c-obs'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  ['c-razao','c-fantasia','c-cnpj','c-ie','c-im','c-abertura','c-inicio','c-responsavel','c-tel','c-email','c-pix','c-obs','c-cep','c-uf','c-logradouro','c-numero','c-complemento','c-bairro','c-municipio','c-cnae-codigo','c-cnae-descricao'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
   const hon = document.getElementById('c-honorario'); if(hon) hon.value='';
   const cnpjStatus = document.getElementById('cnpj-status'); if(cnpjStatus) cnpjStatus.textContent='';
   document.getElementById('c-segmento').value = '';
+  sociosTemp = [];
+  renderSociosLista();
   tab(0, document.querySelector('.modal-tab'));
   carregarObrigacoesModal([]);
   document.getElementById('ov-cliente').classList.add('show');
@@ -438,10 +517,22 @@ async function editarCliente(id) {
   document.getElementById('c-segmento').value = cl.segmento||'';
   document.getElementById('c-venc').value = cl.dia_vencimento||'5';
   document.getElementById('c-cobranca').value = cl.forma_cobranca||'PIX';
+  document.getElementById('c-cep').value = cl.cep||'';
+  document.getElementById('c-uf').value = cl.uf||'';
+  document.getElementById('c-logradouro').value = cl.logradouro||'';
+  document.getElementById('c-numero').value = cl.numero_endereco||'';
+  document.getElementById('c-complemento').value = cl.complemento||'';
+  document.getElementById('c-bairro').value = cl.bairro||'';
+  document.getElementById('c-municipio').value = cl.municipio||'';
+  document.getElementById('c-cnae-codigo').value = cl.cnae_codigo||'';
+  document.getElementById('c-cnae-descricao').value = cl.cnae_descricao||'';
   const cnpjStatus = document.getElementById('cnpj-status'); if(cnpjStatus) cnpjStatus.textContent='';
   // Carregar obrigações selecionadas
   const obs = await api(`cliente_obrigacoes?cliente_id=eq.${id}&select=obrigacao_id`);
   const selectedIds = obs.map(o => o.obrigacao_id);
+  // Carregar sócios
+  sociosTemp = await api(`socios?cliente_id=eq.${id}&select=nome,cpf,data_nascimento`);
+  renderSociosLista();
   tab(0, document.querySelector('.modal-tab'));
   carregarObrigacoesModal(selectedIds);
   document.getElementById('ov-cliente').classList.add('show');
@@ -469,15 +560,29 @@ async function salvarCliente() {
     forma_cobranca: document.getElementById('c-cobranca').value,
     chave_pix: document.getElementById('c-pix').value,
     observacoes: document.getElementById('c-obs').value,
+    cep: document.getElementById('c-cep').value,
+    uf: document.getElementById('c-uf').value,
+    logradouro: document.getElementById('c-logradouro').value,
+    numero_endereco: document.getElementById('c-numero').value,
+    complemento: document.getElementById('c-complemento').value,
+    bairro: document.getElementById('c-bairro').value,
+    municipio: document.getElementById('c-municipio').value,
+    cnae_codigo: document.getElementById('c-cnae-codigo').value,
+    cnae_descricao: document.getElementById('c-cnae-descricao').value,
     status: 'Ativo'
   };
   let clienteId = id;
   if (id) {
     await api(`clientes?id=eq.${id}`, 'PATCH', dados);
     await api(`cliente_obrigacoes?cliente_id=eq.${id}`, 'DELETE');
+    await api(`socios?cliente_id=eq.${id}`, 'DELETE');
   } else {
     const res = await api('clientes', 'POST', dados);
     clienteId = res[0]?.id;
+  }
+  // Salvar sócios
+  for (const s of sociosTemp) {
+    await api('socios', 'POST', { cliente_id: clienteId, nome: s.nome, cpf: s.cpf, data_nascimento: s.data_nascimento });
   }
   // Salvar obrigações
   const checks = document.querySelectorAll('#obrig-lista input[type=checkbox]:checked');
@@ -899,12 +1004,14 @@ async function pagRelatorios() {
       ${relTabBtn('demanda','Por demanda')}
       ${relTabBtn('periodo','A vencer / Vencidas')}
       ${relTabBtn('financeiro','Financeiro')}
+      ${relTabBtn('aniversariantes','Aniversariantes')}
     </div>
     <div id="relatorio-body"><div style="text-align:center;padding:40px;color:#9CA3AF"><i class="ti ti-loader" style="font-size:32px"></i><br>Carregando...</div></div>`;
   if (relatorioTab === 'geral') renderRelatorioGeral();
   else if (relatorioTab === 'demanda') renderRelatorioPorDemanda();
   else if (relatorioTab === 'periodo') renderRelatorioPeriodo();
   else if (relatorioTab === 'financeiro') renderRelatorioFinanceiro();
+  else if (relatorioTab === 'aniversariantes') renderRelatorioAniversariantes();
 }
 
 async function renderRelatorioGeral() {
@@ -1074,6 +1181,39 @@ async function renderRelatorioFinanceiro() {
       <div class="metric" style="border-left-color:var(--danger)"><div class="metric-label">Honorários em aberto (mês)</div><div class="metric-value" style="color:var(--danger)">${fmt(honorariosAberto)}</div></div>
       <div class="metric"><div class="metric-label">Despesas do mês</div><div class="metric-value">${fmt(totalDespesas)}</div></div>
       <div class="metric"><div class="metric-label">Resultado do mês</div><div class="metric-value" style="color:${resultadoMes>=0?'var(--success)':'var(--danger)'}">${fmt(resultadoMes)}</div></div>
+    </div>`;
+}
+
+async function renderRelatorioAniversariantes() {
+  const socios = await api('socios?select=id,nome,data_nascimento,cliente_id,clientes(razao_social,telefone)');
+  const mesNum = String(mesSel+1).padStart(2,'0');
+  const aniversariantes = socios
+    .filter(s => s.data_nascimento && s.data_nascimento.split('-')[1] === mesNum)
+    .map(s => ({ ...s, dia: parseInt(s.data_nascimento.split('-')[2]) }))
+    .sort((a,b) => a.dia - b.dia);
+
+  const body = document.getElementById('relatorio-body');
+  body.innerHTML = `
+    <div class="card">
+      <div class="card-header"><div class="card-title">Aniversariantes de ${meses[mesSel]}</div></div>
+      <table class="table">
+        <thead><tr><th>Dia</th><th>Sócio</th><th>Empresa</th><th>Ação</th></tr></thead>
+        <tbody>
+          ${aniversariantes.length === 0 ? '<tr><td colspan="4" style="text-align:center;padding:24px;color:#9CA3AF">Nenhum aniversariante em '+meses[mesSel]+'.</td></tr>' :
+          aniversariantes.map(a => {
+            const telefone = (a.clientes?.telefone||'').replace(/\D/g,'');
+            const numeroWhats = telefone ? (telefone.startsWith('55') ? telefone : '55'+telefone) : '';
+            const primeiroNome = a.nome.trim().split(' ')[0];
+            const mensagem = encodeURIComponent(`Parabéns, ${primeiroNome}! 🎉 A equipe Estratégia Contábil deseja a você um dia incrível e cheio de conquistas!`);
+            return `<tr>
+              <td style="font-weight:500">${String(a.dia).padStart(2,'0')}/${mesNum}</td>
+              <td>${a.nome}</td>
+              <td>${a.clientes?.razao_social||'—'}</td>
+              <td>${numeroWhats ? `<a class="btn btn-sm btn-success" href="https://wa.me/${numeroWhats}?text=${mensagem}" target="_blank"><i class="ti ti-brand-whatsapp"></i> Enviar parabéns</a>` : '<span style="color:#9CA3AF;font-size:12px">Sem telefone cadastrado</span>'}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
     </div>`;
 }
 

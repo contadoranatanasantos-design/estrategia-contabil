@@ -347,6 +347,7 @@ async function pagClientes() {
             <div class="field"><label>Município</label><input id="c-municipio" placeholder="Cidade"></div>
             <div class="field"><label>Código CNAE</label><input id="c-cnae-codigo" placeholder="0000-0/00"></div>
             <div class="field" style="grid-column:span 2"><label>Descrição CNAE</label><input id="c-cnae-descricao" placeholder="Atividade principal"></div>
+            <div class="field" style="grid-column:span 2"><label>CNAEs secundários</label><textarea id="c-cnaes-secundarios" placeholder="Atividades secundárias"></textarea></div>
           </div>
         </div>
         <div id="tab2" style="display:none">
@@ -423,6 +424,7 @@ async function buscarCNPJ() {
     const municipio = document.getElementById('c-municipio');
     const cnaeCodigo = document.getElementById('c-cnae-codigo');
     const cnaeDescricao = document.getElementById('c-cnae-descricao');
+    const cnaesSecundarios = document.getElementById('c-cnaes-secundarios');
     if (razao && !razao.value.trim()) razao.value = d.razao_social || '';
     if (fantasia && !fantasia.value.trim()) fantasia.value = d.nome_fantasia || '';
     if (abertura && !abertura.value && d.data_inicio_atividade) abertura.value = d.data_inicio_atividade;
@@ -437,6 +439,9 @@ async function buscarCNPJ() {
     if (municipio && !municipio.value.trim()) municipio.value = d.municipio || '';
     if (cnaeCodigo && !cnaeCodigo.value.trim() && d.cnae_fiscal) cnaeCodigo.value = d.cnae_fiscal;
     if (cnaeDescricao && !cnaeDescricao.value.trim() && d.cnae_fiscal_descricao) cnaeDescricao.value = d.cnae_fiscal_descricao;
+    if (cnaesSecundarios && !cnaesSecundarios.value.trim() && Array.isArray(d.cnaes_secundarios) && d.cnaes_secundarios.length) {
+      cnaesSecundarios.value = d.cnaes_secundarios.map(c => `${c.codigo} - ${c.descricao}`).join('\n');
+    }
     status.textContent = 'Dados preenchidos automaticamente ✓';
     status.style.color = 'var(--success)';
   } catch (e) {
@@ -483,7 +488,7 @@ function formatarDataBR(iso) {
 function abrirModalCliente() {
   document.getElementById('c-id').value = '';
   document.getElementById('modal-cliente-titulo').textContent = 'Novo cliente';
-  ['c-razao','c-fantasia','c-cnpj','c-ie','c-im','c-abertura','c-inicio','c-responsavel','c-tel','c-email','c-pix','c-obs','c-cep','c-uf','c-logradouro','c-numero','c-complemento','c-bairro','c-municipio','c-cnae-codigo','c-cnae-descricao'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  ['c-razao','c-fantasia','c-cnpj','c-ie','c-im','c-abertura','c-inicio','c-responsavel','c-tel','c-email','c-pix','c-obs','c-cep','c-uf','c-logradouro','c-numero','c-complemento','c-bairro','c-municipio','c-cnae-codigo','c-cnae-descricao','c-cnaes-secundarios'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
   const hon = document.getElementById('c-honorario'); if(hon) hon.value='';
   const cnpjStatus = document.getElementById('cnpj-status'); if(cnpjStatus) cnpjStatus.textContent='';
   document.getElementById('c-segmento').value = '';
@@ -526,6 +531,7 @@ async function editarCliente(id) {
   document.getElementById('c-municipio').value = cl.municipio||'';
   document.getElementById('c-cnae-codigo').value = cl.cnae_codigo||'';
   document.getElementById('c-cnae-descricao').value = cl.cnae_descricao||'';
+  document.getElementById('c-cnaes-secundarios').value = cl.cnaes_secundarios||'';
   const cnpjStatus = document.getElementById('cnpj-status'); if(cnpjStatus) cnpjStatus.textContent='';
   // Carregar obrigações selecionadas
   const obs = await api(`cliente_obrigacoes?cliente_id=eq.${id}&select=obrigacao_id`);
@@ -569,6 +575,7 @@ async function salvarCliente() {
     municipio: document.getElementById('c-municipio').value,
     cnae_codigo: document.getElementById('c-cnae-codigo').value,
     cnae_descricao: document.getElementById('c-cnae-descricao').value,
+    cnaes_secundarios: document.getElementById('c-cnaes-secundarios').value,
     status: 'Ativo'
   };
   let clienteId = id;

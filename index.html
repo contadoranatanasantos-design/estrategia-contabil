@@ -1200,6 +1200,7 @@ async function renderRelatorioAniversariantes() {
     .map(s => ({ ...s, dia: parseInt(s.data_nascimento.split('-')[2]) }))
     .sort((a,b) => a.dia - b.dia);
 
+  window._aniversariantesMsgs = [];
   const body = document.getElementById('relatorio-body');
   body.innerHTML = `
     <div class="card">
@@ -1208,20 +1209,34 @@ async function renderRelatorioAniversariantes() {
         <thead><tr><th>Dia</th><th>Sócio</th><th>Empresa</th><th>Ação</th></tr></thead>
         <tbody>
           ${aniversariantes.length === 0 ? '<tr><td colspan="4" style="text-align:center;padding:24px;color:#9CA3AF">Nenhum aniversariante em '+meses[mesSel]+'.</td></tr>' :
-          aniversariantes.map(a => {
+          aniversariantes.map((a, i) => {
             const telefone = (a.clientes?.telefone||'').replace(/\D/g,'');
             const numeroWhats = telefone ? (telefone.startsWith('55') ? telefone : '55'+telefone) : '';
-            const mensagem = encodeURIComponent(`⭐ Hoje é um dia especial!\n\nA equipe Estratégia Contábil passou para desejar um feliz aniversário e dizer que não esquecemos dessa data tão importante. ✨\n\nDesejamos muita saúde, felicidade, conquistas e prosperidade em seu novo ciclo.\n\nÉ uma satisfação ter você conosco. Obrigado pela confiança e parceria!\n\nFeliz aniversário ✨⭐❤️`);
+            window._aniversariantesMsgs[i] = {
+              numero: numeroWhats,
+              mensagem: `⭐ Hoje é um dia especial!\n\nA equipe Estratégia Contábil passou para desejar um feliz aniversário e dizer que não esquecemos dessa data tão importante. ✨\n\nDesejamos muita saúde, felicidade, conquistas e prosperidade em seu novo ciclo.\n\nÉ uma satisfação ter você conosco. Obrigado pela confiança e parceria!\n\nFeliz aniversário ✨⭐❤️`
+            };
             return `<tr>
               <td style="font-weight:500">${String(a.dia).padStart(2,'0')}/${mesNum}</td>
               <td>${a.nome}</td>
               <td>${a.clientes?.razao_social||'—'}</td>
-              <td>${numeroWhats ? `<a class="btn btn-sm btn-success" href="https://wa.me/${numeroWhats}?text=${mensagem}" target="_blank"><i class="ti ti-brand-whatsapp"></i> Enviar parabéns</a>` : '<span style="color:#9CA3AF;font-size:12px">Sem telefone cadastrado</span>'}</td>
+              <td>${numeroWhats ? `<button class="btn btn-sm btn-success" onclick="enviarParabens(${i})"><i class="ti ti-brand-whatsapp"></i> Enviar parabéns</button>` : '<span style="color:#9CA3AF;font-size:12px">Sem telefone cadastrado</span>'}</td>
             </tr>`;
           }).join('')}
         </tbody>
       </table>
     </div>`;
+}
+
+async function enviarParabens(i) {
+  const { numero, mensagem } = window._aniversariantesMsgs[i];
+  try {
+    await navigator.clipboard.writeText(mensagem);
+    toast('Mensagem copiada! Cole (Ctrl+V) na conversa que vai abrir.', 'success');
+  } catch (e) {
+    toast('Não consegui copiar automaticamente. Copie a mensagem manualmente.', 'error');
+  }
+  window.open(`https://wa.me/${numero}`, '_blank');
 }
 
 function fecharModal(id) { document.getElementById(id).classList.remove('show'); }

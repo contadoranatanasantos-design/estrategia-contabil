@@ -122,7 +122,7 @@
       <div class="nav-item" onclick="ir('clientes',this)"><i class="ti ti-users"></i> Clientes</div>
       <div class="nav-section">Operacional</div>
       <div class="nav-item" onclick="ir('demandas',this)"><i class="ti ti-checkbox"></i> Demandas</div>
-      <div class="nav-item" onclick="ir('documentos',this)"><i class="ti ti-folder"></i> Documentos</div>
+      <div class="nav-item" onclick="ir('empresas',this)"><i class="ti ti-building"></i> Empresas</div>
       <div class="nav-section">Financeiro</div>
       <div class="nav-item" onclick="ir('receber',this)"><i class="ti ti-trending-up"></i> Contas a receber</div>
       <div class="nav-item" onclick="ir('pagar',this)"><i class="ti ti-trending-down"></i> Contas a pagar</div>
@@ -231,7 +231,7 @@ document.getElementById('login-btn').onclick = login;
 document.getElementById('login-senha').onkeydown = e => { if(e.key==='Enter') login(); };
 
 // NAVEGAÇÃO
-const titulos = { dashboard:'Dashboard', clientes:'Clientes', demandas:'Demandas', documentos:'Documentos', receber:'Contas a receber', pagar:'Contas a pagar', relatorios:'Relatórios', configuracoes:'Configurações' };
+const titulos = { dashboard:'Dashboard', clientes:'Clientes', demandas:'Demandas', empresas:'Empresas', receber:'Contas a receber', pagar:'Contas a pagar', relatorios:'Relatórios', configuracoes:'Configurações' };
 function ir(pag, el) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   if (el) el.classList.add('active');
@@ -239,7 +239,7 @@ function ir(pag, el) {
   document.getElementById('page-title').textContent = titulos[pag] || pag;
   const c = document.getElementById('content');
   c.innerHTML = '<div style="text-align:center;padding:40px;color:#9CA3AF"><i class="ti ti-loader" style="font-size:32px"></i><br>Carregando...</div>';
-  setTimeout(() => { if(pag==='dashboard') pagDashboard(); else if(pag==='clientes') pagClientes(); else if(pag==='demandas') pagDemandas(); else if(pag==='documentos') pagDocumentos(); else if(pag==='receber') pagReceber(); else if(pag==='pagar') pagPagar(); else if(pag==='relatorios') pagRelatorios(); else if(pag==='configuracoes') pagConfig(); }, 200);
+  setTimeout(() => { if(pag==='dashboard') pagDashboard(); else if(pag==='clientes') pagClientes(); else if(pag==='demandas') pagDemandas(); else if(pag==='empresas') pagEmpresas(); else if(pag==='receber') pagReceber(); else if(pag==='pagar') pagPagar(); else if(pag==='relatorios') pagRelatorios(); else if(pag==='configuracoes') pagConfig(); }, 200);
 }
 
 function toast(msg, tipo='') { const t=document.getElementById('toast'); t.textContent=msg; t.className=`toast show ${tipo}`; setTimeout(()=>t.className='toast',3000); }
@@ -725,8 +725,14 @@ async function toggleDemanda(clienteId, obId, feito, obNome) {
   verDemanda(obId, obNome);
 }
 
-// DOCUMENTOS
-async function pagDocumentos() {
+// EMPRESAS (documentos)
+const PASTAS_EMPRESA = {
+  guias: { label: '01 - Guias de Impostos/Relatórios', icone: 'ti-receipt' },
+  situacao: { label: '02 - Situação Fiscal', icone: 'ti-file-search' },
+  nf: { label: '03 - Notas Fiscais', icone: 'ti-file-invoice' }
+};
+
+async function pagEmpresas() {
   const clientes = await api('clientes?select=id,razao_social&status=eq.Ativo&order=razao_social');
   const docs = await api(`documentos?mes=eq.${mesSel}&ano=eq.${anoSel}&select=cliente_id`);
   const contagem = {};
@@ -734,34 +740,31 @@ async function pagDocumentos() {
   const c = document.getElementById('content');
   c.innerHTML = `
     <div class="page-header">
-      <div class="page-header-title">Documentos — ${meses[mesSel]} ${anoSel}</div>
+      <div class="page-header-title">Empresas — ${meses[mesSel]} ${anoSel}</div>
       <div style="display:flex;gap:8px">
-        <select onchange="mesSel=parseInt(this.value);pagDocumentos()" style="height:36px;padding:0 10px;border-radius:8px;border:1px solid #E5E7EB;font-size:13px">
+        <select onchange="mesSel=parseInt(this.value);pagEmpresas()" style="height:36px;padding:0 10px;border-radius:8px;border:1px solid #E5E7EB;font-size:13px">
           ${meses.map((m,i)=>`<option value="${i}" ${i===mesSel?'selected':''}>${m}</option>`).join('')}
         </select>
-        <input type="number" value="${anoSel}" onchange="anoSel=parseInt(this.value);pagDocumentos()" style="height:36px;width:80px;padding:0 10px;border-radius:8px;border:1px solid #E5E7EB;font-size:13px">
+        <input type="number" value="${anoSel}" onchange="anoSel=parseInt(this.value);pagEmpresas()" style="height:36px;width:80px;padding:0 10px;border-radius:8px;border:1px solid #E5E7EB;font-size:13px">
       </div>
     </div>
     <div class="card">
       <div class="card-header"><div class="card-title">Upload em lote</div></div>
       <div class="card-body">
-        <div style="font-size:13px;color:#4B5563;margin-bottom:12px">Selecione vários PDFs de uma vez (guias, situação fiscal etc.). O sistema lê o CNPJ de dentro de cada arquivo e identifica o cliente sozinho — os que não conseguir identificar, você escolhe manualmente.</div>
+        <div style="font-size:13px;color:#4B5563;margin-bottom:12px">Selecione vários PDFs de uma vez (guias, situação fiscal, notas fiscais etc.). O sistema lê o CNPJ de dentro de cada arquivo e identifica o cliente e a pasta sozinho — o que não conseguir identificar, você escolhe manualmente.</div>
         <input type="file" id="lote-arquivos" multiple accept="application/pdf" onchange="processarLote()">
         <div id="lote-resultado" style="margin-top:16px"></div>
       </div>
     </div>
-    ${clientes.length === 0 ? '<div class="empty-state"><i class="ti ti-folder"></i>Nenhum cliente cadastrado.</div>' :
+    ${clientes.length === 0 ? '<div class="empty-state"><i class="ti ti-building"></i>Nenhum cliente cadastrado.</div>' :
     clientes.map(cl => `
       <div class="card" style="cursor:pointer" onclick="verPastaCliente('${cl.id}')">
         <div class="card-header">
           <div style="display:flex;align-items:center;gap:10px">
-            <div style="width:36px;height:36px;border-radius:8px;background:#EEF2FF;display:flex;align-items:center;justify-content:center"><i class="ti ti-folder" style="color:var(--navy)"></i></div>
+            <div style="width:36px;height:36px;border-radius:8px;background:#EEF2FF;display:flex;align-items:center;justify-content:center"><i class="ti ti-building" style="color:var(--navy)"></i></div>
             <div style="font-weight:600;color:var(--navy)">${cl.razao_social}</div>
           </div>
-          <div style="display:flex;align-items:center;gap:14px">
-            <div style="font-size:13px;color:#9CA3AF">${contagem[cl.id]||0} arquivo(s) · Clique para abrir a pasta →</div>
-            ${contagem[cl.id] ? `<button class="btn btn-sm btn-success" onclick="event.stopPropagation();enviarDocumentosWhats('${cl.id}')"><i class="ti ti-brand-whatsapp"></i> Enviar</button>` : ''}
-          </div>
+          <div style="font-size:13px;color:#9CA3AF">${contagem[cl.id]||0} arquivo(s) · Clique para abrir →</div>
         </div>
       </div>`).join('')}`;
 }
@@ -784,14 +787,11 @@ function extrairCNPJ(texto) {
   return match ? match[0].replace(/\D/g, '') : null;
 }
 
-function detectarTipoDocumento(texto) {
+function detectarPastaDocumento(texto) {
   const t = texto.toUpperCase();
-  if (t.includes('PARCELA')) return 'Parcelamento';
-  if (t.includes('INSS') || t.includes('GPS') || t.includes('PREVIDENCI')) return 'INSS';
-  if (t.includes('SIMPLES NACIONAL') || t.includes('DAS')) return 'DAS';
-  if (t.includes('RECIBO')) return 'Recibo';
-  if (t.includes('DECLARA')) return 'Declaração';
-  return 'Outro';
+  if (t.includes('NOTA FISCAL') || t.includes('NFS-E') || t.includes('NFSE')) return 'nf';
+  if (t.includes('SITUAÇÃO FISCAL') || t.includes('SITUACAO FISCAL') || t.includes('PENDENCIA') || t.includes('PENDÊNCIA')) return 'situacao';
+  return 'guias';
 }
 
 async function processarLote() {
@@ -812,17 +812,16 @@ async function processarLote() {
         if (cliente) clienteId = cliente.id;
       }
     } catch (e) {}
-    window._loteArquivos.push({ file, clienteId, tipo: texto ? detectarTipoDocumento(texto) : 'Outro' });
+    window._loteArquivos.push({ file, clienteId, pasta: texto ? detectarPastaDocumento(texto) : 'guias' });
   }
   renderLoteResultado(clientes);
 }
 
 function renderLoteResultado(clientes) {
   const resultado = document.getElementById('lote-resultado');
-  const tipos = ['DAS','INSS','Recibo','Declaração','Parcelamento','Outro'];
   resultado.innerHTML = `
     <table class="table">
-      <thead><tr><th>Arquivo</th><th>Cliente</th><th>Tipo</th></tr></thead>
+      <thead><tr><th>Arquivo</th><th>Cliente</th><th>Pasta</th></tr></thead>
       <tbody>
         ${window._loteArquivos.map((item, i) => `<tr>
           <td style="font-weight:500">${item.file.name}${!item.clienteId ? ' <span class="badge badge-danger">não identificado</span>' : ''}</td>
@@ -830,8 +829,8 @@ function renderLoteResultado(clientes) {
             <option value="">Selecione...</option>
             ${clientes.map(c=>`<option value="${c.id}" ${c.id===item.clienteId?'selected':''}>${c.razao_social}</option>`).join('')}
           </select></td>
-          <td><select onchange="window._loteArquivos[${i}].tipo=this.value">
-            ${tipos.map(t=>`<option ${t===item.tipo?'selected':''}>${t}</option>`).join('')}
+          <td><select onchange="window._loteArquivos[${i}].pasta=this.value">
+            ${Object.entries(PASTAS_EMPRESA).map(([key,p])=>`<option value="${key}" ${key===item.pasta?'selected':''}>${p.label}</option>`).join('')}
           </select></td>
         </tr>`).join('')}
       </tbody>
@@ -854,43 +853,63 @@ async function anexarLote() {
         headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + TOKEN, 'Content-Type': item.file.type || 'application/pdf' },
         body: item.file
       });
-      await api('documentos', 'POST', { cliente_id: item.clienteId, mes: mesSel, ano: anoSel, nome_arquivo: item.file.name, tipo: item.tipo, storage_path: path });
+      await api('documentos', 'POST', { cliente_id: item.clienteId, mes: mesSel, ano: anoSel, nome_arquivo: item.file.name, tipo: item.pasta, storage_path: path });
       sucesso++;
     } catch (e) {}
   }
   btn.disabled = false;
   toast(`${sucesso} arquivo(s) anexado(s)${semCliente?`, ${semCliente} sem cliente selecionado`:''}!`, semCliente ? 'error' : 'success');
-  pagDocumentos();
+  pagEmpresas();
 }
 
 async function verPastaCliente(clienteId) {
-  const cl = (await api(`clientes?id=eq.${clienteId}&select=razao_social,telefone`))[0];
-  const documentos = await api(`documentos?cliente_id=eq.${clienteId}&mes=eq.${mesSel}&ano=eq.${anoSel}&order=created_at`);
-  window._documentosAtual = documentos;
+  const cl = (await api(`clientes?id=eq.${clienteId}&select=razao_social`))[0];
+  const docs = await api(`documentos?cliente_id=eq.${clienteId}&mes=eq.${mesSel}&ano=eq.${anoSel}&select=tipo`);
+  const contagem = {};
+  docs.forEach(d => { contagem[d.tipo] = (contagem[d.tipo]||0)+1; });
   const c = document.getElementById('content');
   c.innerHTML = `
     <div class="page-header">
-      <button class="btn" onclick="pagDocumentos()"><i class="ti ti-arrow-left"></i> Voltar</button>
+      <button class="btn" onclick="pagEmpresas()"><i class="ti ti-arrow-left"></i> Voltar</button>
+    </div>
+    <div class="page-header-title" style="margin-bottom:16px">${cl.razao_social} — ${meses[mesSel]} ${anoSel}</div>
+    ${Object.entries(PASTAS_EMPRESA).map(([key, p]) => `
+      <div class="card" style="cursor:pointer" onclick="verSubPasta('${clienteId}','${key}')">
+        <div class="card-header">
+          <div style="display:flex;align-items:center;gap:10px">
+            <div style="width:36px;height:36px;border-radius:8px;background:#EEF2FF;display:flex;align-items:center;justify-content:center"><i class="ti ${p.icone}" style="color:var(--navy)"></i></div>
+            <div style="font-weight:600;color:var(--navy)">${p.label}</div>
+          </div>
+          <div style="font-size:13px;color:#9CA3AF">${contagem[key]||0} arquivo(s) →</div>
+        </div>
+      </div>`).join('')}`;
+}
+
+async function verSubPasta(clienteId, pasta) {
+  const cl = (await api(`clientes?id=eq.${clienteId}&select=razao_social,telefone`))[0];
+  const documentos = await api(`documentos?cliente_id=eq.${clienteId}&mes=eq.${mesSel}&ano=eq.${anoSel}&tipo=eq.${pasta}&order=created_at`);
+  window._documentosAtual = documentos;
+  const info = PASTAS_EMPRESA[pasta];
+  const c = document.getElementById('content');
+  c.innerHTML = `
+    <div class="page-header">
+      <button class="btn" onclick="verPastaCliente('${clienteId}')"><i class="ti ti-arrow-left"></i> Voltar</button>
     </div>
     <div class="card">
       <div class="card-header">
-        <div style="font-weight:600;color:var(--navy);font-size:15px">${cl.razao_social} — ${meses[mesSel]} ${anoSel}</div>
-        <button class="btn btn-sm btn-success" onclick="enviarDocumentosWhats('${clienteId}')"><i class="ti ti-brand-whatsapp"></i> Enviar pelo WhatsApp</button>
+        <div style="font-weight:600;color:var(--navy);font-size:15px">${cl.razao_social} — ${info.label}</div>
+        <button class="btn btn-sm btn-success" onclick="enviarPastaWhats('${clienteId}','${pasta}')"><i class="ti ti-brand-whatsapp"></i> Enviar pelo WhatsApp</button>
       </div>
       <div class="card-body">
-        <div class="form-grid-2" style="margin-bottom:12px;align-items:end">
-          <div class="field"><label>Tipo de documento</label><select id="doc-tipo"><option>DAS</option><option>INSS</option><option>Recibo</option><option>Declaração</option><option>Parcelamento</option><option>Outro</option></select></div>
-          <div class="field"><label>Arquivo</label><input type="file" id="doc-arquivo"></div>
-        </div>
-        <button class="btn btn-navy btn-sm" id="btn-upload-doc" onclick="uploadDocumento('${clienteId}')"><i class="ti ti-upload"></i> Anexar arquivo</button>
+        <div class="field" style="margin-bottom:12px"><label>Arquivo</label><input type="file" id="doc-arquivo"></div>
+        <button class="btn btn-navy btn-sm" id="btn-upload-doc" onclick="uploadDocumento('${clienteId}','${pasta}')"><i class="ti ti-upload"></i> Anexar arquivo</button>
       </div>
       <table class="table">
-        <thead><tr><th>Arquivo</th><th>Tipo</th><th>Data</th><th>Ações</th></tr></thead>
+        <thead><tr><th>Arquivo</th><th>Data</th><th>Ações</th></tr></thead>
         <tbody>
-          ${documentos.length === 0 ? '<tr><td colspan="4" style="text-align:center;padding:24px;color:#9CA3AF">Nenhum arquivo anexado neste mês ainda.</td></tr>' :
+          ${documentos.length === 0 ? '<tr><td colspan="3" style="text-align:center;padding:24px;color:#9CA3AF">Nenhum arquivo anexado ainda.</td></tr>' :
           documentos.map((d, i) => `<tr>
             <td style="font-weight:500">${d.nome_arquivo}</td>
-            <td><span class="badge badge-info">${d.tipo||'—'}</span></td>
             <td>${new Date(d.created_at).toLocaleDateString('pt-BR')}</td>
             <td><div style="display:flex;gap:6px">
               <button class="btn btn-sm" onclick="baixarDocumento(${i})"><i class="ti ti-download"></i></button>
@@ -899,12 +918,19 @@ async function verPastaCliente(clienteId) {
           </tr>`).join('')}
         </tbody>
       </table>
+      ${pasta === 'situacao' ? `
+      <div class="card-body" style="border-top:1px solid var(--border)">
+        <div class="field">
+          <label>Rascunho do diagnóstico (revise antes de enviar)</label>
+          <textarea id="diagnostico-texto" placeholder="Clique em 'Gerar rascunho' após anexar a situação fiscal..."></textarea>
+        </div>
+        <button class="btn btn-sm" onclick="gerarDiagnostico('${clienteId}')"><i class="ti ti-sparkles"></i> Gerar rascunho a partir do último arquivo</button>
+      </div>` : ''}
     </div>`;
 }
 
-async function uploadDocumento(clienteId) {
+async function uploadDocumento(clienteId, pasta) {
   const fileInput = document.getElementById('doc-arquivo');
-  const tipo = document.getElementById('doc-tipo').value;
   const file = fileInput.files[0];
   if (!file) { toast('Escolha um arquivo!', 'error'); return; }
   const btn = document.getElementById('btn-upload-doc');
@@ -918,9 +944,9 @@ async function uploadDocumento(clienteId) {
       body: file
     });
     if (!r.ok) throw new Error('falha no upload');
-    await api('documentos', 'POST', { cliente_id: clienteId, mes: mesSel, ano: anoSel, nome_arquivo: file.name, tipo, storage_path: path });
+    await api('documentos', 'POST', { cliente_id: clienteId, mes: mesSel, ano: anoSel, nome_arquivo: file.name, tipo: pasta, storage_path: path });
     toast('Arquivo anexado!', 'success');
-    verPastaCliente(clienteId);
+    verSubPasta(clienteId, pasta);
   } catch (e) {
     toast('Erro ao anexar arquivo. Tente novamente.', 'error');
   } finally {
@@ -952,15 +978,49 @@ async function excluirDocumento(i) {
   });
   await api(`documentos?id=eq.${d.id}`, 'DELETE');
   toast('Arquivo excluído!', 'success');
-  verPastaCliente(d.cliente_id);
+  verSubPasta(d.cliente_id, d.tipo);
 }
 
-async function enviarDocumentosWhats(clienteId) {
+function gerarTextoDiagnostico(texto, nomeEmpresa) {
+  if (!texto) return `Olá! Segue a situação fiscal da ${nomeEmpresa} deste mês. (Não conseguimos ler o conteúdo do arquivo automaticamente — revise com atenção antes de enviar.)`;
+  const t = texto.toUpperCase();
+  const semPendencia = t.includes('NÃO CONSTA') || t.includes('NAO CONSTA') || t.includes('NENHUMA PENDENCIA') || t.includes('SEM PENDENCIA') || t.includes('NADA CONSTA');
+  if (semPendencia) return `Olá! Verificamos a situação fiscal da ${nomeEmpresa} neste mês e não identificamos nenhuma pendência. Tudo certo por aqui! ✅`;
+  return `Olá! Verificamos a situação fiscal da ${nomeEmpresa} neste mês e identificamos pontos de atenção que precisam da sua análise. Segue o relatório completo em anexo — qualquer dúvida, estamos à disposição!`;
+}
+
+async function gerarDiagnostico(clienteId) {
+  if (!window._documentosAtual || window._documentosAtual.length === 0) { toast('Anexe um arquivo primeiro!', 'error'); return; }
+  const d = window._documentosAtual[window._documentosAtual.length - 1];
+  const cl = (await api(`clientes?id=eq.${clienteId}&select=razao_social`))[0];
+  let texto = '';
+  try {
+    const r = await fetch(`${SB_URL}/storage/v1/object/sign/documentos/${d.storage_path}`, {
+      method: 'POST', headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + TOKEN, 'Content-Type': 'application/json' }, body: JSON.stringify({ expiresIn: 60 })
+    });
+    const data = await r.json();
+    const fileR = await fetch(SB_URL + '/storage/v1' + data.signedURL);
+    const blob = await fileR.blob();
+    const file = new File([blob], d.nome_arquivo, { type: 'application/pdf' });
+    texto = await extrairTextoPDF(file);
+  } catch (e) {}
+  document.getElementById('diagnostico-texto').value = gerarTextoDiagnostico(texto, cl.razao_social);
+}
+
+async function enviarPastaWhats(clienteId, pasta) {
   const cl = (await api(`clientes?id=eq.${clienteId}&select=razao_social,telefone`))[0];
   const telefone = (cl.telefone||'').replace(/\D/g,'');
   if (!telefone) { toast('Este cliente não tem telefone cadastrado.', 'error'); return; }
   const numero = telefone.startsWith('55') ? telefone : '55'+telefone;
-  const mensagem = `Olá! Segue a situação fiscal e as guias de ${meses[mesSel]}/${anoSel} da ${cl.razao_social}. Qualquer dúvida estamos à disposição!`;
+  let mensagem;
+  if (pasta === 'situacao') {
+    const textoEditado = document.getElementById('diagnostico-texto')?.value.trim();
+    mensagem = textoEditado || `Olá! Segue a situação fiscal da ${cl.razao_social} referente a ${meses[mesSel]}/${anoSel}.`;
+  } else if (pasta === 'nf') {
+    mensagem = `Olá! Segue a nota fiscal e a declaração do Simples Nacional da ${cl.razao_social} referente a ${meses[mesSel]}/${anoSel}.`;
+  } else {
+    mensagem = `Olá! Segue a guia e os documentos da apuração de impostos da ${cl.razao_social} referente a ${meses[mesSel]}/${anoSel}.`;
+  }
   window.open(`https://web.whatsapp.com/send?phone=${numero}&text=${encodeURIComponent(mensagem)}`, '_blank');
 }
 

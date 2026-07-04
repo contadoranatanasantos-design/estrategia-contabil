@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Estratégia Contábil</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.44.0/tabler-icons.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     :root { --navy: #1B2A4A; --gold: #B8922A; --gold-light: #FFF8EC; --surface-0: #F8F9FA; --border: #E5E7EB; --text-primary: #111827; --text-muted: #9CA3AF; --success: #16a34a; --danger: #dc2626; --warning: #d97706; --radius: 8px; }
@@ -150,6 +151,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
 const SB_URL = 'https://kkfejhkxxgcyfdqjlysg.supabase.co';
 const SB_KEY = 'sb_publishable_KyMX7Ju85qr8Cq8IGpVfcg_Zl_isWEP';
 let TOKEN = localStorage.getItem('sb_token') || '';
@@ -740,6 +742,14 @@ async function pagDocumentos() {
         <input type="number" value="${anoSel}" onchange="anoSel=parseInt(this.value);pagDocumentos()" style="height:36px;width:80px;padding:0 10px;border-radius:8px;border:1px solid #E5E7EB;font-size:13px">
       </div>
     </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Upload em lote</div></div>
+      <div class="card-body">
+        <div style="font-size:13px;color:#4B5563;margin-bottom:12px">Selecione vários PDFs de uma vez (guias, situação fiscal etc.). O sistema lê o CNPJ de dentro de cada arquivo e identifica o cliente sozinho — os que não conseguir identificar, você escolhe manualmente.</div>
+        <input type="file" id="lote-arquivos" multiple accept="application/pdf" onchange="processarLote()">
+        <div id="lote-resultado" style="margin-top:16px"></div>
+      </div>
+    </div>
     ${clientes.length === 0 ? '<div class="empty-state"><i class="ti ti-folder"></i>Nenhum cliente cadastrado.</div>' :
     clientes.map(cl => `
       <div class="card" style="cursor:pointer" onclick="verPastaCliente('${cl.id}')">
@@ -748,9 +758,109 @@ async function pagDocumentos() {
             <div style="width:36px;height:36px;border-radius:8px;background:#EEF2FF;display:flex;align-items:center;justify-content:center"><i class="ti ti-folder" style="color:var(--navy)"></i></div>
             <div style="font-weight:600;color:var(--navy)">${cl.razao_social}</div>
           </div>
-          <div style="font-size:13px;color:#9CA3AF">${contagem[cl.id]||0} arquivo(s) · Clique para abrir a pasta →</div>
+          <div style="display:flex;align-items:center;gap:14px">
+            <div style="font-size:13px;color:#9CA3AF">${contagem[cl.id]||0} arquivo(s) · Clique para abrir a pasta →</div>
+            ${contagem[cl.id] ? `<button class="btn btn-sm btn-success" onclick="event.stopPropagation();enviarDocumentosWhats('${cl.id}')"><i class="ti ti-brand-whatsapp"></i> Enviar</button>` : ''}
+          </div>
         </div>
       </div>`).join('')}`;
+}
+
+async function extrairTextoPDF(file) {
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  let texto = '';
+  const maxPaginas = Math.min(pdf.numPages, 2);
+  for (let i = 1; i <= maxPaginas; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    texto += content.items.map(it => it.str).join(' ') + '\n';
+  }
+  return texto;
+}
+
+function extrairCNPJ(texto) {
+  const match = texto.match(/\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}/);
+  return match ? match[0].replace(/\D/g, '') : null;
+}
+
+function detectarTipoDocumento(texto) {
+  const t = texto.toUpperCase();
+  if (t.includes('PARCELA')) return 'Parcelamento';
+  if (t.includes('INSS') || t.includes('GPS') || t.includes('PREVIDENCI')) return 'INSS';
+  if (t.includes('SIMPLES NACIONAL') || t.includes('DAS')) return 'DAS';
+  if (t.includes('RECIBO')) return 'Recibo';
+  if (t.includes('DECLARA')) return 'Declaração';
+  return 'Outro';
+}
+
+async function processarLote() {
+  const input = document.getElementById('lote-arquivos');
+  const files = Array.from(input.files);
+  if (files.length === 0) return;
+  const resultado = document.getElementById('lote-resultado');
+  resultado.innerHTML = '<div style="text-align:center;padding:20px;color:#9CA3AF"><i class="ti ti-loader"></i> Lendo arquivos e identificando clientes...</div>';
+  const clientes = await api('clientes?select=id,razao_social,cnpj&order=razao_social');
+  window._loteArquivos = [];
+  for (const file of files) {
+    let clienteId = '', texto = '';
+    try {
+      texto = await extrairTextoPDF(file);
+      const cnpjEncontrado = extrairCNPJ(texto);
+      if (cnpjEncontrado) {
+        const cliente = clientes.find(c => (c.cnpj||'').replace(/\D/g,'') === cnpjEncontrado);
+        if (cliente) clienteId = cliente.id;
+      }
+    } catch (e) {}
+    window._loteArquivos.push({ file, clienteId, tipo: texto ? detectarTipoDocumento(texto) : 'Outro' });
+  }
+  renderLoteResultado(clientes);
+}
+
+function renderLoteResultado(clientes) {
+  const resultado = document.getElementById('lote-resultado');
+  const tipos = ['DAS','INSS','Recibo','Declaração','Parcelamento','Outro'];
+  resultado.innerHTML = `
+    <table class="table">
+      <thead><tr><th>Arquivo</th><th>Cliente</th><th>Tipo</th></tr></thead>
+      <tbody>
+        ${window._loteArquivos.map((item, i) => `<tr>
+          <td style="font-weight:500">${item.file.name}${!item.clienteId ? ' <span class="badge badge-danger">não identificado</span>' : ''}</td>
+          <td><select onchange="window._loteArquivos[${i}].clienteId=this.value">
+            <option value="">Selecione...</option>
+            ${clientes.map(c=>`<option value="${c.id}" ${c.id===item.clienteId?'selected':''}>${c.razao_social}</option>`).join('')}
+          </select></td>
+          <td><select onchange="window._loteArquivos[${i}].tipo=this.value">
+            ${tipos.map(t=>`<option ${t===item.tipo?'selected':''}>${t}</option>`).join('')}
+          </select></td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+    <button class="btn btn-navy" id="btn-anexar-lote" onclick="anexarLote()" style="margin-top:12px"><i class="ti ti-upload"></i> Anexar todos (${window._loteArquivos.length})</button>`;
+}
+
+async function anexarLote() {
+  const btn = document.getElementById('btn-anexar-lote');
+  const original = btn.innerHTML;
+  btn.disabled = true;
+  let sucesso = 0, semCliente = 0;
+  for (const item of window._loteArquivos) {
+    if (!item.clienteId) { semCliente++; continue; }
+    btn.innerHTML = `<i class="ti ti-loader"></i> Enviando ${sucesso+1}/${window._loteArquivos.length}...`;
+    try {
+      const path = `${item.clienteId}/${anoSel}-${String(mesSel+1).padStart(2,'0')}/${Date.now()}-${item.file.name}`;
+      await fetch(`${SB_URL}/storage/v1/object/documentos/${path}`, {
+        method: 'POST',
+        headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + TOKEN, 'Content-Type': item.file.type || 'application/pdf' },
+        body: item.file
+      });
+      await api('documentos', 'POST', { cliente_id: item.clienteId, mes: mesSel, ano: anoSel, nome_arquivo: item.file.name, tipo: item.tipo, storage_path: path });
+      sucesso++;
+    } catch (e) {}
+  }
+  btn.disabled = false;
+  toast(`${sucesso} arquivo(s) anexado(s)${semCliente?`, ${semCliente} sem cliente selecionado`:''}!`, semCliente ? 'error' : 'success');
+  pagDocumentos();
 }
 
 async function verPastaCliente(clienteId) {

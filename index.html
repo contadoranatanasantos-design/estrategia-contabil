@@ -289,13 +289,14 @@ async function pagClientes() {
     </div>
     <div class="card">
       <table class="table">
-        <thead><tr><th>Empresa</th><th>CNPJ</th><th>Regime</th><th>Honorários</th><th>Status</th><th>Ações</th></tr></thead>
+        <thead><tr><th>Empresa</th><th>CNPJ</th><th>Regime</th><th>Segmento</th><th>Honorários</th><th>Status</th><th>Ações</th></tr></thead>
         <tbody id="tb-clientes">
-          ${clientes.length === 0 ? '<tr><td colspan="6"><div class="empty-state"><i class="ti ti-users"></i>Nenhum cliente cadastrado ainda.<br><br><button class="btn btn-navy" onclick="abrirModalCliente()"><i class="ti ti-plus"></i> Cadastrar primeiro cliente</button></div></td></tr>' :
+          ${clientes.length === 0 ? '<tr><td colspan="7"><div class="empty-state"><i class="ti ti-users"></i>Nenhum cliente cadastrado ainda.<br><br><button class="btn btn-navy" onclick="abrirModalCliente()"><i class="ti ti-plus"></i> Cadastrar primeiro cliente</button></div></td></tr>' :
           clientes.map(cl => `<tr>
             <td><div style="font-weight:500">${cl.razao_social}</div><div style="font-size:11px;color:#9CA3AF">${cl.nome_fantasia||''}</div></td>
             <td>${cl.cnpj||'—'}</td>
             <td><span class="badge badge-info">${cl.regime||'—'}</span></td>
+            <td>${cl.segmento||'—'}</td>
             <td>${fmt(cl.honorario)}</td>
             <td><span class="badge ${cl.status==='Ativo'?'badge-success':'badge-warning'}">${cl.status||'Ativo'}</span></td>
             <td><div style="display:flex;gap:6px">
@@ -322,7 +323,8 @@ async function pagClientes() {
             <div class="field" style="grid-column:span 2"><label>Razão social *</label><input id="c-razao" placeholder="Ex: Mercearia do Zé Ltda"></div>
             <div class="field"><label>Nome fantasia</label><input id="c-fantasia" placeholder="Nome fantasia"></div>
             <div class="field"><label>Regime tributário</label><select id="c-regime"><option>Simples Nacional</option><option>Lucro Presumido</option><option>Lucro Real</option><option>MEI</option></select></div>
-            <div class="field"><label>CNPJ</label><input id="c-cnpj" placeholder="00.000.000/0001-00"></div>
+            <div class="field"><label>Segmento</label><select id="c-segmento"><option value="">Selecione...</option><option>Comércio</option><option>Serviço</option><option>Indústria</option><option>Comércio/Serviço</option></select></div>
+            <div class="field"><label>CNPJ</label><input id="c-cnpj" placeholder="00.000.000/0001-00" onblur="buscarCNPJ()"><div id="cnpj-status" style="font-size:11px;margin-top:2px"></div></div>
             <div class="field"><label>Inscrição estadual</label><input id="c-ie" placeholder="Inscrição estadual"></div>
             <div class="field"><label>Inscrição municipal</label><input id="c-im" placeholder="Inscrição municipal"></div>
             <div class="field"><label>Data abertura CNPJ</label><input type="date" id="c-abertura"></div>
@@ -372,11 +374,42 @@ async function carregarObrigacoesModal(selectedIds=[]) {
     </div>`).join('');
 }
 
+async function buscarCNPJ() {
+  const cnpjInput = document.getElementById('c-cnpj');
+  const status = document.getElementById('cnpj-status');
+  const cnpjNumeros = cnpjInput.value.replace(/\D/g, '');
+  if (cnpjNumeros.length !== 14) { if (status) status.textContent = ''; return; }
+  status.textContent = 'Buscando dados na Receita Federal...';
+  status.style.color = '#9CA3AF';
+  try {
+    const r = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpjNumeros}`);
+    if (!r.ok) throw new Error('não encontrado');
+    const d = await r.json();
+    const razao = document.getElementById('c-razao');
+    const fantasia = document.getElementById('c-fantasia');
+    const abertura = document.getElementById('c-abertura');
+    const tel = document.getElementById('c-tel');
+    const regime = document.getElementById('c-regime');
+    if (razao && !razao.value.trim()) razao.value = d.razao_social || '';
+    if (fantasia && !fantasia.value.trim()) fantasia.value = d.nome_fantasia || '';
+    if (abertura && !abertura.value && d.data_inicio_atividade) abertura.value = d.data_inicio_atividade;
+    if (tel && !tel.value.trim() && d.ddd_telefone_1) tel.value = d.ddd_telefone_1;
+    if (regime && d.opcao_pelo_simples === true) regime.value = 'Simples Nacional';
+    status.textContent = 'Dados preenchidos automaticamente ✓';
+    status.style.color = 'var(--success)';
+  } catch (e) {
+    status.textContent = 'CNPJ não encontrado ou serviço indisponível no momento.';
+    status.style.color = 'var(--danger)';
+  }
+}
+
 function abrirModalCliente() {
   document.getElementById('c-id').value = '';
   document.getElementById('modal-cliente-titulo').textContent = 'Novo cliente';
-  ['c-razao','c-fantasia','c-cnpj','c-ie','c-im','c-responsavel','c-tel','c-email','c-pix','c-obs'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  ['c-razao','c-fantasia','c-cnpj','c-ie','c-im','c-abertura','c-inicio','c-responsavel','c-tel','c-email','c-pix','c-obs'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
   const hon = document.getElementById('c-honorario'); if(hon) hon.value='';
+  const cnpjStatus = document.getElementById('cnpj-status'); if(cnpjStatus) cnpjStatus.textContent='';
+  document.getElementById('c-segmento').value = '';
   tab(0, document.querySelector('.modal-tab'));
   carregarObrigacoesModal([]);
   document.getElementById('ov-cliente').classList.add('show');
@@ -393,6 +426,8 @@ async function editarCliente(id) {
   document.getElementById('c-cnpj').value = cl.cnpj||'';
   document.getElementById('c-ie').value = cl.inscricao_estadual||'';
   document.getElementById('c-im').value = cl.inscricao_municipal||'';
+  document.getElementById('c-abertura').value = cl.data_abertura||'';
+  document.getElementById('c-inicio').value = cl.data_inicio||'';
   document.getElementById('c-responsavel').value = cl.responsavel||'';
   document.getElementById('c-tel').value = cl.telefone||'';
   document.getElementById('c-email').value = cl.email||'';
@@ -400,8 +435,10 @@ async function editarCliente(id) {
   document.getElementById('c-pix').value = cl.chave_pix||'';
   document.getElementById('c-obs').value = cl.observacoes||'';
   document.getElementById('c-regime').value = cl.regime||'Simples Nacional';
+  document.getElementById('c-segmento').value = cl.segmento||'';
   document.getElementById('c-venc').value = cl.dia_vencimento||'5';
   document.getElementById('c-cobranca').value = cl.forma_cobranca||'PIX';
+  const cnpjStatus = document.getElementById('cnpj-status'); if(cnpjStatus) cnpjStatus.textContent='';
   // Carregar obrigações selecionadas
   const obs = await api(`cliente_obrigacoes?cliente_id=eq.${id}&select=obrigacao_id`);
   const selectedIds = obs.map(o => o.obrigacao_id);
@@ -420,10 +457,13 @@ async function salvarCliente() {
     cnpj: document.getElementById('c-cnpj').value,
     inscricao_estadual: document.getElementById('c-ie').value,
     inscricao_municipal: document.getElementById('c-im').value,
+    data_abertura: document.getElementById('c-abertura').value || null,
+    data_inicio: document.getElementById('c-inicio').value || null,
     responsavel: document.getElementById('c-responsavel').value,
     telefone: document.getElementById('c-tel').value,
     email: document.getElementById('c-email').value,
     regime: document.getElementById('c-regime').value,
+    segmento: document.getElementById('c-segmento').value,
     honorario: parseFloat(document.getElementById('c-honorario').value)||0,
     dia_vencimento: parseInt(document.getElementById('c-venc').value)||5,
     forma_cobranca: document.getElementById('c-cobranca').value,

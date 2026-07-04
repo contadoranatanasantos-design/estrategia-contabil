@@ -121,6 +121,7 @@
       <div class="nav-item" onclick="ir('clientes',this)"><i class="ti ti-users"></i> Clientes</div>
       <div class="nav-section">Operacional</div>
       <div class="nav-item" onclick="ir('demandas',this)"><i class="ti ti-checkbox"></i> Demandas</div>
+      <div class="nav-item" onclick="ir('documentos',this)"><i class="ti ti-folder"></i> Documentos</div>
       <div class="nav-section">Financeiro</div>
       <div class="nav-item" onclick="ir('receber',this)"><i class="ti ti-trending-up"></i> Contas a receber</div>
       <div class="nav-item" onclick="ir('pagar',this)"><i class="ti ti-trending-down"></i> Contas a pagar</div>
@@ -228,7 +229,7 @@ document.getElementById('login-btn').onclick = login;
 document.getElementById('login-senha').onkeydown = e => { if(e.key==='Enter') login(); };
 
 // NAVEGAÇÃO
-const titulos = { dashboard:'Dashboard', clientes:'Clientes', demandas:'Demandas', receber:'Contas a receber', pagar:'Contas a pagar', relatorios:'Relatórios', configuracoes:'Configurações' };
+const titulos = { dashboard:'Dashboard', clientes:'Clientes', demandas:'Demandas', documentos:'Documentos', receber:'Contas a receber', pagar:'Contas a pagar', relatorios:'Relatórios', configuracoes:'Configurações' };
 function ir(pag, el) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   if (el) el.classList.add('active');
@@ -236,7 +237,7 @@ function ir(pag, el) {
   document.getElementById('page-title').textContent = titulos[pag] || pag;
   const c = document.getElementById('content');
   c.innerHTML = '<div style="text-align:center;padding:40px;color:#9CA3AF"><i class="ti ti-loader" style="font-size:32px"></i><br>Carregando...</div>';
-  setTimeout(() => { if(pag==='dashboard') pagDashboard(); else if(pag==='clientes') pagClientes(); else if(pag==='demandas') pagDemandas(); else if(pag==='receber') pagReceber(); else if(pag==='pagar') pagPagar(); else if(pag==='relatorios') pagRelatorios(); else if(pag==='configuracoes') pagConfig(); }, 200);
+  setTimeout(() => { if(pag==='dashboard') pagDashboard(); else if(pag==='clientes') pagClientes(); else if(pag==='demandas') pagDemandas(); else if(pag==='documentos') pagDocumentos(); else if(pag==='receber') pagReceber(); else if(pag==='pagar') pagPagar(); else if(pag==='relatorios') pagRelatorios(); else if(pag==='configuracoes') pagConfig(); }, 200);
 }
 
 function toast(msg, tipo='') { const t=document.getElementById('toast'); t.textContent=msg; t.className=`toast show ${tipo}`; setTimeout(()=>t.className='toast',3000); }
@@ -720,6 +721,137 @@ async function toggleDemanda(clienteId, obId, feito, obNome) {
   }
   toast(feito ? 'Marcado como feito!' : 'Desmarcado!', 'success');
   verDemanda(obId, obNome);
+}
+
+// DOCUMENTOS
+async function pagDocumentos() {
+  const clientes = await api('clientes?select=id,razao_social&status=eq.Ativo&order=razao_social');
+  const docs = await api(`documentos?mes=eq.${mesSel}&ano=eq.${anoSel}&select=cliente_id`);
+  const contagem = {};
+  docs.forEach(d => { contagem[d.cliente_id] = (contagem[d.cliente_id]||0)+1; });
+  const c = document.getElementById('content');
+  c.innerHTML = `
+    <div class="page-header">
+      <div class="page-header-title">Documentos — ${meses[mesSel]} ${anoSel}</div>
+      <div style="display:flex;gap:8px">
+        <select onchange="mesSel=parseInt(this.value);pagDocumentos()" style="height:36px;padding:0 10px;border-radius:8px;border:1px solid #E5E7EB;font-size:13px">
+          ${meses.map((m,i)=>`<option value="${i}" ${i===mesSel?'selected':''}>${m}</option>`).join('')}
+        </select>
+        <input type="number" value="${anoSel}" onchange="anoSel=parseInt(this.value);pagDocumentos()" style="height:36px;width:80px;padding:0 10px;border-radius:8px;border:1px solid #E5E7EB;font-size:13px">
+      </div>
+    </div>
+    ${clientes.length === 0 ? '<div class="empty-state"><i class="ti ti-folder"></i>Nenhum cliente cadastrado.</div>' :
+    clientes.map(cl => `
+      <div class="card" style="cursor:pointer" onclick="verPastaCliente('${cl.id}')">
+        <div class="card-header">
+          <div style="display:flex;align-items:center;gap:10px">
+            <div style="width:36px;height:36px;border-radius:8px;background:#EEF2FF;display:flex;align-items:center;justify-content:center"><i class="ti ti-folder" style="color:var(--navy)"></i></div>
+            <div style="font-weight:600;color:var(--navy)">${cl.razao_social}</div>
+          </div>
+          <div style="font-size:13px;color:#9CA3AF">${contagem[cl.id]||0} arquivo(s) · Clique para abrir a pasta →</div>
+        </div>
+      </div>`).join('')}`;
+}
+
+async function verPastaCliente(clienteId) {
+  const cl = (await api(`clientes?id=eq.${clienteId}&select=razao_social,telefone`))[0];
+  const documentos = await api(`documentos?cliente_id=eq.${clienteId}&mes=eq.${mesSel}&ano=eq.${anoSel}&order=created_at`);
+  window._documentosAtual = documentos;
+  const c = document.getElementById('content');
+  c.innerHTML = `
+    <div class="page-header">
+      <button class="btn" onclick="pagDocumentos()"><i class="ti ti-arrow-left"></i> Voltar</button>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <div style="font-weight:600;color:var(--navy);font-size:15px">${cl.razao_social} — ${meses[mesSel]} ${anoSel}</div>
+        <button class="btn btn-sm btn-success" onclick="enviarDocumentosWhats('${clienteId}')"><i class="ti ti-brand-whatsapp"></i> Enviar pelo WhatsApp</button>
+      </div>
+      <div class="card-body">
+        <div class="form-grid-2" style="margin-bottom:12px;align-items:end">
+          <div class="field"><label>Tipo de documento</label><select id="doc-tipo"><option>DAS</option><option>INSS</option><option>Recibo</option><option>Declaração</option><option>Parcelamento</option><option>Outro</option></select></div>
+          <div class="field"><label>Arquivo</label><input type="file" id="doc-arquivo"></div>
+        </div>
+        <button class="btn btn-navy btn-sm" id="btn-upload-doc" onclick="uploadDocumento('${clienteId}')"><i class="ti ti-upload"></i> Anexar arquivo</button>
+      </div>
+      <table class="table">
+        <thead><tr><th>Arquivo</th><th>Tipo</th><th>Data</th><th>Ações</th></tr></thead>
+        <tbody>
+          ${documentos.length === 0 ? '<tr><td colspan="4" style="text-align:center;padding:24px;color:#9CA3AF">Nenhum arquivo anexado neste mês ainda.</td></tr>' :
+          documentos.map((d, i) => `<tr>
+            <td style="font-weight:500">${d.nome_arquivo}</td>
+            <td><span class="badge badge-info">${d.tipo||'—'}</span></td>
+            <td>${new Date(d.created_at).toLocaleDateString('pt-BR')}</td>
+            <td><div style="display:flex;gap:6px">
+              <button class="btn btn-sm" onclick="baixarDocumento(${i})"><i class="ti ti-download"></i></button>
+              <button class="btn btn-sm btn-danger" onclick="excluirDocumento(${i})"><i class="ti ti-trash"></i></button>
+            </div></td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+async function uploadDocumento(clienteId) {
+  const fileInput = document.getElementById('doc-arquivo');
+  const tipo = document.getElementById('doc-tipo').value;
+  const file = fileInput.files[0];
+  if (!file) { toast('Escolha um arquivo!', 'error'); return; }
+  const btn = document.getElementById('btn-upload-doc');
+  const textoOriginal = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader"></i> Enviando...';
+  try {
+    const path = `${clienteId}/${anoSel}-${String(mesSel+1).padStart(2,'0')}/${Date.now()}-${file.name}`;
+    const r = await fetch(`${SB_URL}/storage/v1/object/documentos/${path}`, {
+      method: 'POST',
+      headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + TOKEN, 'Content-Type': file.type || 'application/octet-stream' },
+      body: file
+    });
+    if (!r.ok) throw new Error('falha no upload');
+    await api('documentos', 'POST', { cliente_id: clienteId, mes: mesSel, ano: anoSel, nome_arquivo: file.name, tipo, storage_path: path });
+    toast('Arquivo anexado!', 'success');
+    verPastaCliente(clienteId);
+  } catch (e) {
+    toast('Erro ao anexar arquivo. Tente novamente.', 'error');
+  } finally {
+    btn.disabled = false; btn.innerHTML = textoOriginal;
+  }
+}
+
+async function baixarDocumento(i) {
+  const d = window._documentosAtual[i];
+  const r = await fetch(`${SB_URL}/storage/v1/object/sign/documentos/${d.storage_path}`, {
+    method: 'POST',
+    headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + TOKEN, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ expiresIn: 3600 })
+  });
+  const data = await r.json();
+  if (data.signedURL) {
+    window.open(SB_URL + '/storage/v1' + data.signedURL, '_blank');
+  } else {
+    toast('Erro ao gerar link de download.', 'error');
+  }
+}
+
+async function excluirDocumento(i) {
+  const d = window._documentosAtual[i];
+  if (!confirm(`Excluir "${d.nome_arquivo}"?`)) return;
+  await fetch(`${SB_URL}/storage/v1/object/documentos/${d.storage_path}`, {
+    method: 'DELETE',
+    headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + TOKEN }
+  });
+  await api(`documentos?id=eq.${d.id}`, 'DELETE');
+  toast('Arquivo excluído!', 'success');
+  verPastaCliente(d.cliente_id);
+}
+
+async function enviarDocumentosWhats(clienteId) {
+  const cl = (await api(`clientes?id=eq.${clienteId}&select=razao_social,telefone`))[0];
+  const telefone = (cl.telefone||'').replace(/\D/g,'');
+  if (!telefone) { toast('Este cliente não tem telefone cadastrado.', 'error'); return; }
+  const numero = telefone.startsWith('55') ? telefone : '55'+telefone;
+  const mensagem = `Olá! Segue a situação fiscal e as guias de ${meses[mesSel]}/${anoSel} da ${cl.razao_social}. Qualquer dúvida estamos à disposição!`;
+  window.open(`https://web.whatsapp.com/send?phone=${numero}&text=${encodeURIComponent(mensagem)}`, '_blank');
 }
 
 // FINANCEIRO - RECEBER

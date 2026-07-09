@@ -201,6 +201,28 @@ async function renovarToken() {
   } catch(e) { return false; }
 }
 
+async function storageFetch(path, opts = {}) {
+  const headers = Object.assign({ 'apikey': SB_KEY, 'Authorization': 'Bearer ' + TOKEN }, opts.headers || {});
+  let r = await fetch(`${SB_URL}/storage/v1${path}`, Object.assign({}, opts, { headers }));
+  if (r.status === 401 || r.status === 403 || r.status === 400) {
+    let pareceAuth = r.status !== 400;
+    if (!pareceAuth) {
+      try {
+        const corpo = await r.clone().json();
+        pareceAuth = corpo.statusCode === '401' || corpo.statusCode === '403' || /jwt|token|unauthorized/i.test(corpo.message || '');
+      } catch (e) {}
+    }
+    if (pareceAuth) {
+      const renovou = await renovarToken();
+      if (renovou) {
+        headers['Authorization'] = 'Bearer ' + TOKEN;
+        r = await fetch(`${SB_URL}/storage/v1${path}`, Object.assign({}, opts, { headers }));
+      }
+    }
+  }
+  return r;
+}
+
 async function login() {
   const email = document.getElementById('login-email').value.trim();
   const senha = document.getElementById('login-senha').value;
@@ -782,6 +804,11 @@ async function extrairTextoPDF(file) {
   return texto;
 }
 
+function sanitizarNomeArquivo(nome) {
+  const semAcentos = nome.normalize('NFD').replace(new RegExp(String.fromCharCode(91,92,117,48,51,48,48,45,92,117,48,51,54,102,93), 'g'), '');
+  return semAcentos.replace(/[^a-zA-Z0-9._-]/g, '_');
+}
+
 function extrairCNPJ(texto) {
   const match = texto.match(/\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}/);
   return match ? match[0].replace(/\D/g, '') : null;
@@ -847,10 +874,10 @@ async function anexarLote() {
     if (!item.clienteId) { semCliente++; continue; }
     btn.innerHTML = `<i class="ti ti-loader"></i> Enviando ${sucesso+1}/${window._loteArquivos.length}...`;
     try {
-      const path = `${item.clienteId}/${anoSel}-${String(mesSel+1).padStart(2,'0')}/${Date.now()}-${item.file.name}`;
-      await fetch(`${SB_URL}/storage/v1/object/documentos/${path}`, {
+      const path = `${item.clienteId}/${anoSel}-${String(mesSel+1).padStart(2,'0')}/${Date.now()}-${sanitizarNomeArquivo(item.file.name)}`;
+      await storageFetch(`/object/documentos/${path}`, {
         method: 'POST',
-        headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + TOKEN, 'Content-Type': item.file.type || 'application/pdf' },
+        headers: { 'Content-Type': item.file.type || 'application/pdf' },
         body: item.file
       });
       await api('documentos', 'POST', { cliente_id: item.clienteId, mes: mesSel, ano: anoSel, nome_arquivo: item.file.name, tipo: item.pasta, storage_path: path });
@@ -937,10 +964,10 @@ async function uploadDocumento(clienteId, pasta) {
   const textoOriginal = btn.innerHTML;
   btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader"></i> Enviando...';
   try {
-    const path = `${clienteId}/${anoSel}-${String(mesSel+1).padStart(2,'0')}/${Date.now()}-${file.name}`;
-    const r = await fetch(`${SB_URL}/storage/v1/object/documentos/${path}`, {
+    const path = `${clienteId}/${anoSel}-${String(mesSel+1).padStart(2,'0')}/${Date.now()}-${sanitizarNomeArquivo(file.name)}`;
+    const r = await storageFetch(`/object/documentos/${path}`, {
       method: 'POST',
-      headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + TOKEN, 'Content-Type': file.type || 'application/octet-stream' },
+      headers: { 'Content-Type': file.type || 'application/octet-stream' },
       body: file
     });
     if (!r.ok) throw new Error('falha no upload');
@@ -956,9 +983,9 @@ async function uploadDocumento(clienteId, pasta) {
 
 async function baixarDocumento(i) {
   const d = window._documentosAtual[i];
-  const r = await fetch(`${SB_URL}/storage/v1/object/sign/documentos/${d.storage_path}`, {
+  const r = await storageFetch(`/object/sign/documentos/${d.storage_path}`, {
     method: 'POST',
-    headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + TOKEN, 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ expiresIn: 3600 })
   });
   const data = await r.json();
@@ -972,10 +999,7 @@ async function baixarDocumento(i) {
 async function excluirDocumento(i) {
   const d = window._documentosAtual[i];
   if (!confirm(`Excluir "${d.nome_arquivo}"?`)) return;
-  await fetch(`${SB_URL}/storage/v1/object/documentos/${d.storage_path}`, {
-    method: 'DELETE',
-    headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + TOKEN }
-  });
+  await storageFetch(`/object/documentos/${d.storage_path}`, { method: 'DELETE' });
   await api(`documentos?id=eq.${d.id}`, 'DELETE');
   toast('Arquivo excluído!', 'success');
   verSubPasta(d.cliente_id, d.tipo);
@@ -995,8 +1019,8 @@ async function gerarDiagnostico(clienteId) {
   const cl = (await api(`clientes?id=eq.${clienteId}&select=razao_social`))[0];
   let texto = '';
   try {
-    const r = await fetch(`${SB_URL}/storage/v1/object/sign/documentos/${d.storage_path}`, {
-      method: 'POST', headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + TOKEN, 'Content-Type': 'application/json' }, body: JSON.stringify({ expiresIn: 60 })
+    const r = await storageFetch(`/object/sign/documentos/${d.storage_path}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expiresIn: 60 })
     });
     const data = await r.json();
     const fileR = await fetch(SB_URL + '/storage/v1' + data.signedURL);

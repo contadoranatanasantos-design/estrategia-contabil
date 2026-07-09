@@ -1265,20 +1265,34 @@ function gerarTextoDiagnostico(texto, nomeEmpresa) {
 
 async function gerarDiagnostico(clienteId) {
   if (!window._documentosAtual || window._documentosAtual.length === 0) { toast('Anexe um arquivo primeiro!', 'error'); return; }
+  const campo = document.getElementById('diagnostico-texto');
+  if (campo) campo.value = 'Lendo o PDF e gerando o diagnóstico...';
   const d = window._documentosAtual[window._documentosAtual.length - 1];
   const cl = (await api(`clientes?id=eq.${clienteId}&select=razao_social`))[0];
   let texto = '';
+  let erro = null;
   try {
+    if (typeof pdfjsLib === 'undefined') throw new Error('biblioteca de leitura de PDF não carregou — recarregue a página (F5)');
     const r = await storageFetch(`/object/sign/documentos/${d.storage_path}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expiresIn: 60 })
     });
     const data = await r.json();
+    if (!data.signedURL) throw new Error('não foi possível baixar o arquivo para leitura');
     const fileR = await fetch(SB_URL + '/storage/v1' + data.signedURL);
     const blob = await fileR.blob();
     const file = new File([blob], d.nome_arquivo, { type: 'application/pdf' });
     texto = await extrairTextoPDF(file);
-  } catch (e) {}
-  document.getElementById('diagnostico-texto').value = gerarTextoDiagnostico(texto, cl.razao_social);
+  } catch (e) {
+    erro = e.message || 'erro desconhecido';
+  }
+  const campoFinal = document.getElementById('diagnostico-texto');
+  if (!campoFinal) return;
+  if (erro) {
+    campoFinal.value = `Olá! Segue a situação fiscal da ${cl.razao_social} deste mês. (Não conseguimos ler o arquivo automaticamente: ${erro}. Revise com atenção antes de enviar.)`;
+    toast('Erro ao gerar diagnóstico automático: ' + erro, 'error');
+  } else {
+    campoFinal.value = gerarTextoDiagnostico(texto, cl.razao_social);
+  }
 }
 
 async function enviarPastaWhats(clienteId, pasta) {

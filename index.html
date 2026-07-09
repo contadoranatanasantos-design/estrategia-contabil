@@ -780,7 +780,7 @@ async function renderDemandasPorCliente() {
 }
 
 async function verDemandasCliente(clienteId) {
-  const cl = (await api(`clientes?id=eq.${clienteId}&select=razao_social`))[0];
+  const cl = (await api(`clientes?id=eq.${clienteId}&select=razao_social,observacoes`))[0];
   const vinculos = await api(`cliente_obrigacoes?cliente_id=eq.${clienteId}&select=obrigacao_id,obrigacoes(id,nome,prazo)`);
   vinculos.sort((a,b) => (parseInt(a.obrigacoes?.prazo)||0) - (parseInt(b.obrigacoes?.prazo)||0));
   const demandas = await api(`demandas?cliente_id=eq.${clienteId}&mes=eq.${mesSel}&ano=eq.${anoSel}&feito=eq.true&select=obrigacao_id`);
@@ -802,6 +802,13 @@ async function verDemandasCliente(clienteId) {
         <div style="background:#E5E7EB;border-radius:99px;height:8px;overflow:hidden">
           <div style="width:${pct}%;height:100%;background:${pct===100?'var(--success)':pct>0?'var(--gold)':'var(--danger)'};border-radius:99px;transition:width 0.4s"></div>
         </div>
+      </div>
+      <div class="card-body" style="border-bottom:1px solid var(--border)">
+        <div class="field">
+          <label><i class="ti ti-pin"></i> Observação fixa (fica salva todo mês, ex: parcelamentos, particularidades do cliente)</label>
+          <textarea id="obs-cliente-demanda" placeholder="Ex: Cliente tem parcelamento na PGFN, emitir guia mensalmente...">${cl.observacoes||''}</textarea>
+        </div>
+        <button class="btn btn-sm btn-navy" onclick="salvarObsClienteDemanda('${clienteId}')"><i class="ti ti-check"></i> Salvar observação</button>
       </div>
       <table class="table">
         <thead><tr><th>Obrigação</th><th>Status</th><th>Ação</th></tr></thead>
@@ -832,6 +839,12 @@ async function toggleDemandaCliente(clienteId, obId, feito) {
   }
   toast(feito ? 'Marcado como feito!' : 'Desmarcado!', 'success');
   verDemandasCliente(clienteId);
+}
+
+async function salvarObsClienteDemanda(clienteId) {
+  const observacoes = document.getElementById('obs-cliente-demanda').value;
+  await api(`clientes?id=eq.${clienteId}`, 'PATCH', { observacoes });
+  toast('Observação salva!', 'success');
 }
 
 function modalObrigHTML() {

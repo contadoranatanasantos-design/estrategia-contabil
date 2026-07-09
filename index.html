@@ -1166,7 +1166,8 @@ async function uploadDocumento(clienteId, pasta) {
     if (!r.ok) throw new Error('falha no upload');
     await api('documentos', 'POST', { cliente_id: clienteId, mes: mesSel, ano: anoSel, nome_arquivo: file.name, tipo: pasta, storage_path: path });
     toast('Arquivo anexado!', 'success');
-    verSubPasta(clienteId, pasta);
+    await verSubPasta(clienteId, pasta);
+    if (pasta === 'situacao') await gerarDiagnostico(clienteId);
   } catch (e) {
     toast('Erro ao anexar arquivo. Tente novamente.', 'error');
   } finally {

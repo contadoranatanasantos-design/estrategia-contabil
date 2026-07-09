@@ -994,7 +994,7 @@ async function extrairTextoPDF(file) {
     const content = await page.getTextContent();
     texto += content.items.map(it => it.str).join(' ') + '\n';
   }
-  return texto;
+  return texto.replace(/[ \t]+/g, ' ');
 }
 
 function sanitizarNomeArquivo(nome) {
@@ -1198,12 +1198,68 @@ async function excluirDocumento(i) {
   verSubPasta(d.cliente_id, d.tipo);
 }
 
+const NOMES_RECEITA = {
+  'CP-SEGUR': 'INSS (CP-Segurado)',
+  'SIMPLES NAC': 'Simples Nacional',
+  'IRPJ': 'IRPJ',
+  'CSLL': 'CSLL',
+  'COFINS': 'COFINS',
+  'PIS': 'PIS/PASEP',
+  'IPI': 'IPI',
+  'DARF': 'DARF'
+};
+
+function nomeAmigavelReceita(label) {
+  const chave = Object.keys(NOMES_RECEITA).find(k => label.toUpperCase().includes(k));
+  return chave ? NOMES_RECEITA[chave] : label;
+}
+
+function extrairItensSecao(textoSecao) {
+  const itens = [];
+  const regex = /([A-ZÀ-ÚÇ][A-ZÀ-ÚÇ0-9.\-\s]{2,28}?)\s(\d{2}\/\d{4})\s\d{2}\/\d{2}\/\d{4}/g;
+  let m;
+  while ((m = regex.exec(textoSecao))) {
+    itens.push(`${nomeAmigavelReceita(m[1].trim())} — competência ${m[2]}`);
+  }
+  return itens;
+}
+
+function extrairPendenciasSituacaoFiscal(texto) {
+  const partesSuspenso = texto.split('Débito com Exigibilidade Suspensa');
+  const partesPendencia = (partesSuspenso[0] || '').split('Pendência - Débito');
+  const secDebito = partesPendencia[1] || '';
+  const partesPgfn = (partesSuspenso[1] || '').split('Diagnóstico Fiscal na Procuradoria');
+  const secSuspenso = partesPgfn[0] || '';
+  const secPgfn = texto.split('Diagnóstico Fiscal na Procuradoria')[1] || '';
+  return {
+    debitos: extrairItensSecao(secDebito),
+    suspensos: extrairItensSecao(secSuspenso),
+    pgfnSemPendencia: /n[aã]o foram detectadas pend/i.test(secPgfn)
+  };
+}
+
 function gerarTextoDiagnostico(texto, nomeEmpresa) {
   if (!texto) return `Olá! Segue a situação fiscal da ${nomeEmpresa} deste mês. (Não conseguimos ler o conteúdo do arquivo automaticamente — revise com atenção antes de enviar.)`;
   const t = texto.toUpperCase();
-  const semPendencia = t.includes('NÃO CONSTA') || t.includes('NAO CONSTA') || t.includes('NENHUMA PENDENCIA') || t.includes('SEM PENDENCIA') || t.includes('NADA CONSTA');
-  if (semPendencia) return `Olá! Verificamos a situação fiscal da ${nomeEmpresa} neste mês e não identificamos nenhuma pendência. Tudo certo por aqui! ✅`;
-  return `Olá! Verificamos a situação fiscal da ${nomeEmpresa} neste mês e identificamos pontos de atenção que precisam da sua análise. Segue o relatório completo em anexo — qualquer dúvida, estamos à disposição!`;
+  const semPendenciaGenerico = t.includes('NÃO CONSTA') || t.includes('NAO CONSTA') || t.includes('NENHUMA PENDENCIA') || t.includes('SEM PENDENCIA') || t.includes('NADA CONSTA');
+  const { debitos, suspensos, pgfnSemPendencia } = extrairPendenciasSituacaoFiscal(texto);
+
+  if (debitos.length === 0 && suspensos.length === 0) {
+    if (semPendenciaGenerico || pgfnSemPendencia) {
+      return `Olá! Verificamos a situação fiscal da ${nomeEmpresa} neste mês e não identificamos nenhuma pendência. Tudo certo por aqui! ✅`;
+    }
+    return `Olá! Verificamos a situação fiscal da ${nomeEmpresa} neste mês e identificamos pontos de atenção que precisam da sua análise. Segue o relatório completo em anexo — qualquer dúvida, estamos à disposição! (Revise o anexo antes de enviar — não conseguimos identificar automaticamente os itens específicos.)`;
+  }
+
+  let msg = `Olá! Verificamos a situação fiscal da ${nomeEmpresa} neste mês e identificamos as seguintes pendências:\n`;
+  debitos.forEach(item => { msg += `\n• ${item}`; });
+  if (suspensos.length > 0) {
+    msg += `\n\nCom exigibilidade suspensa (em análise):`;
+    suspensos.forEach(item => { msg += `\n• ${item}`; });
+  }
+  msg += pgfnSemPendencia ? `\n\nNa Procuradoria-Geral da Fazenda Nacional (PGFN) não há pendências.` : `\n\nAtenção: pode haver pendência também na PGFN — confira o relatório completo.`;
+  msg += `\n\nSegue o relatório completo em anexo. Qualquer dúvida, estamos à disposição!\n\n(⚠️ Revise os itens acima antes de enviar — a leitura é automática e pode não capturar 100% dos casos.)`;
+  return msg;
 }
 
 async function gerarDiagnostico(clienteId) {

@@ -304,32 +304,53 @@ async function pagDashboard() {
 }
 
 // CLIENTES
+let clientesTodos = [];
+
+function renderLinhasClientes(lista) {
+  if (lista.length === 0) return '<tr><td colspan="7"><div class="empty-state"><i class="ti ti-users"></i>Nenhum cliente encontrado.</div></td></tr>';
+  return lista.map(cl => `<tr>
+    <td><div style="font-weight:500">${cl.razao_social}</div><div style="font-size:11px;color:#9CA3AF">${cl.nome_fantasia||''}</div></td>
+    <td>${cl.cnpj||'—'}</td>
+    <td><span class="badge badge-info">${cl.regime||'—'}</span></td>
+    <td>${cl.segmento||'—'}</td>
+    <td>${fmt(cl.honorario)}</td>
+    <td><span class="badge ${cl.status==='Ativo'?'badge-success':'badge-warning'}">${cl.status||'Ativo'}</span></td>
+    <td><div style="display:flex;gap:6px">
+      <button class="btn btn-sm" onclick="editarCliente('${cl.id}')"><i class="ti ti-edit"></i></button>
+      <button class="btn btn-sm btn-danger" onclick="excluirCliente('${cl.id}','${cl.razao_social}')"><i class="ti ti-trash"></i></button>
+    </div></td>
+  </tr>`).join('');
+}
+
+function filtrarClientes() {
+  const termo = document.getElementById('busca-cliente').value.trim().toLowerCase();
+  const termoDigitos = termo.replace(/\D/g, '');
+  const filtrados = clientesTodos.filter(cl => {
+    const alvo = `${cl.razao_social||''} ${cl.nome_fantasia||''}`.toLowerCase();
+    const cnpjDigitos = (cl.cnpj||'').replace(/\D/g, '');
+    return alvo.includes(termo) || (termoDigitos && cnpjDigitos.includes(termoDigitos));
+  });
+  document.getElementById('tb-clientes').innerHTML = renderLinhasClientes(filtrados);
+}
+
 async function pagClientes() {
-  const clientes = await api('clientes?select=*&order=razao_social');
+  clientesTodos = await api('clientes?select=*&order=razao_social');
   const c = document.getElementById('content');
   c.innerHTML = `
     <div class="page-header">
-      <div class="page-header-title">Clientes cadastrados (${clientes.length})</div>
+      <div class="page-header-title">Clientes cadastrados (${clientesTodos.length})</div>
       <button class="btn btn-navy" onclick="abrirModalCliente()"><i class="ti ti-plus"></i> Novo cliente</button>
+    </div>
+    <div class="field" style="max-width:360px;margin-bottom:16px">
+      <div style="position:relative">
+        <i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#9CA3AF"></i>
+        <input id="busca-cliente" placeholder="Buscar por nome ou CNPJ..." oninput="filtrarClientes()" style="height:38px;padding:0 10px 0 34px;border-radius:8px;border:1.5px solid #E5E7EB;font-size:13px;width:100%">
+      </div>
     </div>
     <div class="card">
       <table class="table">
         <thead><tr><th>Empresa</th><th>CNPJ</th><th>Regime</th><th>Segmento</th><th>Honorários</th><th>Status</th><th>Ações</th></tr></thead>
-        <tbody id="tb-clientes">
-          ${clientes.length === 0 ? '<tr><td colspan="7"><div class="empty-state"><i class="ti ti-users"></i>Nenhum cliente cadastrado ainda.<br><br><button class="btn btn-navy" onclick="abrirModalCliente()"><i class="ti ti-plus"></i> Cadastrar primeiro cliente</button></div></td></tr>' :
-          clientes.map(cl => `<tr>
-            <td><div style="font-weight:500">${cl.razao_social}</div><div style="font-size:11px;color:#9CA3AF">${cl.nome_fantasia||''}</div></td>
-            <td>${cl.cnpj||'—'}</td>
-            <td><span class="badge badge-info">${cl.regime||'—'}</span></td>
-            <td>${cl.segmento||'—'}</td>
-            <td>${fmt(cl.honorario)}</td>
-            <td><span class="badge ${cl.status==='Ativo'?'badge-success':'badge-warning'}">${cl.status||'Ativo'}</span></td>
-            <td><div style="display:flex;gap:6px">
-              <button class="btn btn-sm" onclick="editarCliente('${cl.id}')"><i class="ti ti-edit"></i></button>
-              <button class="btn btn-sm btn-danger" onclick="excluirCliente('${cl.id}','${cl.razao_social}')"><i class="ti ti-trash"></i></button>
-            </div></td>
-          </tr>`).join('')}
-        </tbody>
+        <tbody id="tb-clientes">${renderLinhasClientes(clientesTodos)}</tbody>
       </table>
     </div>
     <!-- MODAL CLIENTE -->
@@ -635,8 +656,12 @@ async function excluirCliente(id, nome) {
 }
 
 // DEMANDAS
+let demandasTab = 'obrigacao';
+let obrigacoesTodasDemandas = [];
+let statsObrigacoesDemandas = {};
+let clientesDemandasTodos = [];
+
 async function pagDemandas() {
-  const obrigacoes = await api('obrigacoes?order=prazo');
   const c = document.getElementById('content');
   c.innerHTML = `
     <div class="page-header">
@@ -648,29 +673,165 @@ async function pagDemandas() {
         <input type="number" id="sel-ano" value="${anoSel}" onchange="anoSel=parseInt(this.value);pagDemandas()" style="height:36px;width:80px;padding:0 10px;border-radius:8px;border:1px solid #E5E7EB;font-size:13px">
       </div>
     </div>
-    <div id="demandas-content">
-      ${obrigacoes.length === 0 ? '<div class="empty-state"><i class="ti ti-checkbox"></i>Nenhuma obrigação cadastrada.<br><br><button class="btn btn-navy" onclick="ir(\'configuracoes\')">Ir para Configurações</button></div>' :
-      obrigacoes.map(ob => `
-        <div class="card" style="cursor:pointer" onclick="verDemanda('${ob.id}','${ob.nome}')">
-          <div class="card-header">
-            <div style="display:flex;align-items:center;gap:10px">
-              <div style="width:36px;height:36px;border-radius:8px;background:#EEF2FF;display:flex;align-items:center;justify-content:center"><i class="ti ti-checkbox" style="color:var(--navy)"></i></div>
-              <div>
-                <div style="font-weight:600;color:var(--navy)">${ob.nome}</div>
-                <div style="font-size:12px;color:#9CA3AF">${ob.prazo} · ${ob.periodicidade} · ${ob.regime}</div>
-              </div>
-            </div>
-            <div style="display:flex;align-items:center;gap:14px">
-              <div style="font-size:13px;color:#9CA3AF">Clique para ver clientes →</div>
-              <div style="display:flex;gap:6px" onclick="event.stopPropagation()">
-                <button class="btn btn-sm" onclick="editarObrig('${ob.id}')"><i class="ti ti-edit"></i></button>
-                <button class="btn btn-sm btn-danger" onclick="excluirObrig('${ob.id}','${ob.nome}')"><i class="ti ti-trash"></i></button>
-              </div>
-            </div>
-          </div>
-        </div>`).join('')}
+    <div style="display:flex;gap:8px;margin-bottom:16px">
+      <button class="btn btn-sm ${demandasTab==='obrigacao'?'btn-navy':''}" onclick="demandasTab='obrigacao';pagDemandas()">Por obrigação</button>
+      <button class="btn btn-sm ${demandasTab==='cliente'?'btn-navy':''}" onclick="demandasTab='cliente';pagDemandas()">Por cliente</button>
     </div>
+    <div id="demandas-body"><div style="text-align:center;padding:40px;color:#9CA3AF"><i class="ti ti-loader"></i> Carregando...</div></div>`;
+  if (demandasTab === 'cliente') renderDemandasPorCliente();
+  else renderDemandasPorObrigacao();
+}
+
+function renderCardsObrigacoesDemandas(lista) {
+  if (lista.length === 0) return '<div class="empty-state"><i class="ti ti-checkbox"></i>Nenhuma obrigação encontrada.</div>';
+  return lista.map(ob => {
+    const s = statsObrigacoesDemandas[ob.id] || { total: 0, feitos: 0 };
+    const pctFeito = s.total > 0 ? Math.round(s.feitos/s.total*100) : 0;
+    const pctPendente = s.total > 0 ? 100 - pctFeito : 0;
+    return `
+    <div class="card" style="cursor:pointer" onclick="verDemanda('${ob.id}','${ob.nome}')">
+      <div class="card-header">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="width:36px;height:36px;border-radius:8px;background:#EEF2FF;display:flex;align-items:center;justify-content:center"><i class="ti ti-checkbox" style="color:var(--navy)"></i></div>
+          <div>
+            <div style="font-weight:600;color:var(--navy)">${ob.nome}</div>
+            <div style="font-size:12px;color:#9CA3AF">${ob.prazo} · ${ob.periodicidade} · ${ob.regime}</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:14px">
+          <div style="font-size:12px;color:#9CA3AF">${s.total} empresa(s)</div>
+          <span class="badge badge-success">${pctFeito}% feito</span>
+          <span class="badge badge-warning">${pctPendente}% pendente</span>
+          <div style="display:flex;gap:6px" onclick="event.stopPropagation()">
+            <button class="btn btn-sm" onclick="editarObrig('${ob.id}')"><i class="ti ti-edit"></i></button>
+            <button class="btn btn-sm btn-danger" onclick="excluirObrig('${ob.id}','${ob.nome}')"><i class="ti ti-trash"></i></button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function filtrarObrigacoesDemandas() {
+  const termo = document.getElementById('busca-obrigacao').value.trim().toLowerCase();
+  const filtradas = obrigacoesTodasDemandas.filter(ob => ob.nome.toLowerCase().includes(termo));
+  document.getElementById('lista-obrigacoes-demandas').innerHTML = renderCardsObrigacoesDemandas(filtradas);
+}
+
+async function renderDemandasPorObrigacao() {
+  obrigacoesTodasDemandas = await api('obrigacoes?order=prazo');
+  const clienteObs = await api('cliente_obrigacoes?select=cliente_id,obrigacao_id');
+  const demandasFeitas = await api(`demandas?mes=eq.${mesSel}&ano=eq.${anoSel}&feito=eq.true&select=cliente_id,obrigacao_id`);
+  const feitoSet = new Set(demandasFeitas.map(d => d.cliente_id+'-'+d.obrigacao_id));
+  statsObrigacoesDemandas = {};
+  obrigacoesTodasDemandas.forEach(ob => { statsObrigacoesDemandas[ob.id] = { total: 0, feitos: 0 }; });
+  clienteObs.forEach(co => {
+    if (!statsObrigacoesDemandas[co.obrigacao_id]) return;
+    statsObrigacoesDemandas[co.obrigacao_id].total++;
+    if (feitoSet.has(co.cliente_id+'-'+co.obrigacao_id)) statsObrigacoesDemandas[co.obrigacao_id].feitos++;
+  });
+  const body = document.getElementById('demandas-body');
+  if (obrigacoesTodasDemandas.length === 0) {
+    body.innerHTML = '<div class="empty-state"><i class="ti ti-checkbox"></i>Nenhuma obrigação cadastrada.<br><br><button class="btn btn-navy" onclick="ir(\'configuracoes\')">Ir para Configurações</button></div>';
+    return;
+  }
+  body.innerHTML = `
+    <div class="field" style="max-width:360px;margin-bottom:16px">
+      <div style="position:relative">
+        <i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#9CA3AF"></i>
+        <input id="busca-obrigacao" placeholder="Buscar obrigação..." oninput="filtrarObrigacoesDemandas()" style="height:38px;padding:0 10px 0 34px;border-radius:8px;border:1.5px solid #E5E7EB;font-size:13px;width:100%">
+      </div>
+    </div>
+    <div id="lista-obrigacoes-demandas">${renderCardsObrigacoesDemandas(obrigacoesTodasDemandas)}</div>
     ${modalObrigHTML()}`;
+}
+
+function renderListaClientesDemandas(lista) {
+  if (lista.length === 0) return '<div class="empty-state"><i class="ti ti-users"></i>Nenhum cliente encontrado.</div>';
+  return lista.map(cl => `
+    <div class="card" style="cursor:pointer" onclick="verDemandasCliente('${cl.id}')">
+      <div class="card-header">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="width:36px;height:36px;border-radius:8px;background:#EEF2FF;display:flex;align-items:center;justify-content:center"><i class="ti ti-user" style="color:var(--navy)"></i></div>
+          <div style="font-weight:600;color:var(--navy)">${cl.razao_social}</div>
+        </div>
+        <div style="font-size:13px;color:#9CA3AF">Clique para ver as demandas dele →</div>
+      </div>
+    </div>`).join('');
+}
+
+function filtrarClientesDemandas() {
+  const termo = document.getElementById('busca-cliente-demanda').value.trim().toLowerCase();
+  const filtrados = clientesDemandasTodos.filter(cl => (cl.razao_social||'').toLowerCase().includes(termo));
+  document.getElementById('lista-clientes-demandas').innerHTML = renderListaClientesDemandas(filtrados);
+}
+
+async function renderDemandasPorCliente() {
+  clientesDemandasTodos = await api('clientes?select=id,razao_social&status=eq.Ativo&order=razao_social');
+  const body = document.getElementById('demandas-body');
+  body.innerHTML = `
+    <div class="field" style="max-width:360px;margin-bottom:16px">
+      <div style="position:relative">
+        <i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#9CA3AF"></i>
+        <input id="busca-cliente-demanda" placeholder="Buscar cliente..." oninput="filtrarClientesDemandas()" style="height:38px;padding:0 10px 0 34px;border-radius:8px;border:1.5px solid #E5E7EB;font-size:13px;width:100%">
+      </div>
+    </div>
+    <div id="lista-clientes-demandas">${renderListaClientesDemandas(clientesDemandasTodos)}</div>`;
+}
+
+async function verDemandasCliente(clienteId) {
+  const cl = (await api(`clientes?id=eq.${clienteId}&select=razao_social`))[0];
+  const vinculos = await api(`cliente_obrigacoes?cliente_id=eq.${clienteId}&select=obrigacao_id,obrigacoes(id,nome,prazo)`);
+  vinculos.sort((a,b) => (parseInt(a.obrigacoes?.prazo)||0) - (parseInt(b.obrigacoes?.prazo)||0));
+  const demandas = await api(`demandas?cliente_id=eq.${clienteId}&mes=eq.${mesSel}&ano=eq.${anoSel}&feito=eq.true&select=obrigacao_id`);
+  const feitoSet = new Set(demandas.map(d => d.obrigacao_id));
+  const total = vinculos.length;
+  const feitos = feitoSet.size;
+  const pct = total > 0 ? Math.round(feitos/total*100) : 0;
+  const c = document.getElementById('content');
+  c.innerHTML = `
+    <div class="page-header">
+      <button class="btn" onclick="demandasTab='cliente';pagDemandas()"><i class="ti ti-arrow-left"></i> Voltar</button>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <div style="font-weight:600;color:var(--navy);font-size:15px">${cl.razao_social} — ${meses[mesSel]} ${anoSel}</div>
+        <div style="font-size:13px;color:#9CA3AF">${feitos}/${total} concluídos · ${pct}%</div>
+      </div>
+      <div style="padding:16px 20px;background:#F9FAFB;border-bottom:1px solid #E5E7EB">
+        <div style="background:#E5E7EB;border-radius:99px;height:8px;overflow:hidden">
+          <div style="width:${pct}%;height:100%;background:${pct===100?'var(--success)':pct>0?'var(--gold)':'var(--danger)'};border-radius:99px;transition:width 0.4s"></div>
+        </div>
+      </div>
+      <table class="table">
+        <thead><tr><th>Obrigação</th><th>Status</th><th>Ação</th></tr></thead>
+        <tbody>
+          ${total === 0 ? '<tr><td colspan="3"><div class="empty-state"><i class="ti ti-checkbox"></i>Este cliente não tem obrigações vinculadas.</div></td></tr>' :
+          vinculos.map(v => {
+            const feito = feitoSet.has(v.obrigacao_id);
+            return `<tr>
+              <td style="font-weight:500">${v.obrigacoes?.nome||'—'}</td>
+              <td><span class="badge ${feito?'badge-success':'badge-warning'}">${feito?'Concluído':'Pendente'}</span></td>
+              <td><div style="display:flex;gap:6px">
+                <button class="btn btn-sm ${feito?'btn-success':''}" onclick="toggleDemandaCliente('${clienteId}','${v.obrigacao_id}',true)"><i class="ti ti-check"></i> Feito</button>
+                <button class="btn btn-sm ${!feito?'btn-warning':''}" onclick="toggleDemandaCliente('${clienteId}','${v.obrigacao_id}',false)"><i class="ti ti-clock"></i> Pendente</button>
+              </div></td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+async function toggleDemandaCliente(clienteId, obId, feito) {
+  const existing = await api(`demandas?cliente_id=eq.${clienteId}&obrigacao_id=eq.${obId}&mes=eq.${mesSel}&ano=eq.${anoSel}`);
+  if (existing.length > 0) {
+    await api(`demandas?id=eq.${existing[0].id}`, 'PATCH', { feito, data_conclusao: feito ? new Date().toISOString().split('T')[0] : null });
+  } else {
+    await api('demandas', 'POST', { cliente_id: clienteId, obrigacao_id: obId, mes: mesSel, ano: anoSel, feito, data_conclusao: feito ? new Date().toISOString().split('T')[0] : null });
+  }
+  toast(feito ? 'Marcado como feito!' : 'Desmarcado!', 'success');
+  verDemandasCliente(clienteId);
 }
 
 function modalObrigHTML() {
@@ -754,11 +915,34 @@ const PASTAS_EMPRESA = {
   nf: { label: '03 - Notas Fiscais', icone: 'ti-file-invoice' }
 };
 
+let clientesEmpresas = [];
+let contagemEmpresas = {};
+
+function renderListaEmpresas(lista) {
+  if (lista.length === 0) return '<div class="empty-state"><i class="ti ti-building"></i>Nenhum cliente encontrado.</div>';
+  return lista.map(cl => `
+    <div class="card" style="cursor:pointer" onclick="verPastaCliente('${cl.id}')">
+      <div class="card-header">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="width:36px;height:36px;border-radius:8px;background:#EEF2FF;display:flex;align-items:center;justify-content:center"><i class="ti ti-building" style="color:var(--navy)"></i></div>
+          <div style="font-weight:600;color:var(--navy)">${cl.razao_social}</div>
+        </div>
+        <div style="font-size:13px;color:#9CA3AF">${contagemEmpresas[cl.id]||0} arquivo(s) · Clique para abrir →</div>
+      </div>
+    </div>`).join('');
+}
+
+function filtrarEmpresas() {
+  const termo = document.getElementById('busca-empresa').value.trim().toLowerCase();
+  const filtrados = clientesEmpresas.filter(cl => (cl.razao_social||'').toLowerCase().includes(termo));
+  document.getElementById('lista-empresas').innerHTML = renderListaEmpresas(filtrados);
+}
+
 async function pagEmpresas() {
-  const clientes = await api('clientes?select=id,razao_social&status=eq.Ativo&order=razao_social');
+  clientesEmpresas = await api('clientes?select=id,razao_social&status=eq.Ativo&order=razao_social');
   const docs = await api(`documentos?mes=eq.${mesSel}&ano=eq.${anoSel}&select=cliente_id`);
-  const contagem = {};
-  docs.forEach(d => { contagem[d.cliente_id] = (contagem[d.cliente_id]||0)+1; });
+  contagemEmpresas = {};
+  docs.forEach(d => { contagemEmpresas[d.cliente_id] = (contagemEmpresas[d.cliente_id]||0)+1; });
   const c = document.getElementById('content');
   c.innerHTML = `
     <div class="page-header">
@@ -778,17 +962,13 @@ async function pagEmpresas() {
         <div id="lote-resultado" style="margin-top:16px"></div>
       </div>
     </div>
-    ${clientes.length === 0 ? '<div class="empty-state"><i class="ti ti-building"></i>Nenhum cliente cadastrado.</div>' :
-    clientes.map(cl => `
-      <div class="card" style="cursor:pointer" onclick="verPastaCliente('${cl.id}')">
-        <div class="card-header">
-          <div style="display:flex;align-items:center;gap:10px">
-            <div style="width:36px;height:36px;border-radius:8px;background:#EEF2FF;display:flex;align-items:center;justify-content:center"><i class="ti ti-building" style="color:var(--navy)"></i></div>
-            <div style="font-weight:600;color:var(--navy)">${cl.razao_social}</div>
-          </div>
-          <div style="font-size:13px;color:#9CA3AF">${contagem[cl.id]||0} arquivo(s) · Clique para abrir →</div>
-        </div>
-      </div>`).join('')}`;
+    <div class="field" style="max-width:360px;margin-bottom:16px">
+      <div style="position:relative">
+        <i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#9CA3AF"></i>
+        <input id="busca-empresa" placeholder="Buscar empresa..." oninput="filtrarEmpresas()" style="height:38px;padding:0 10px 0 34px;border-radius:8px;border:1.5px solid #E5E7EB;font-size:13px;width:100%">
+      </div>
+    </div>
+    <div id="lista-empresas">${renderListaEmpresas(clientesEmpresas)}</div>`;
 }
 
 async function extrairTextoPDF(file) {
@@ -1276,14 +1456,14 @@ async function salvarObrig() {
   if (id) { await api(`obrigacoes?id=eq.${id}`, 'PATCH', dados); } else { await api('obrigacoes','POST',dados); }
   fecharModal('ov-obrig');
   toast(id ? 'Obrigação atualizada!' : 'Obrigação cadastrada!','success');
-  document.getElementById('demandas-content') ? pagDemandas() : pagConfig();
+  document.getElementById('demandas-body') ? pagDemandas() : pagConfig();
 }
 
 async function excluirObrig(id, nome) {
   if (!confirm(`Excluir "${nome}"?`)) return;
   await api(`obrigacoes?id=eq.${id}`, 'DELETE');
   toast('Obrigação excluída!','success');
-  document.getElementById('demandas-content') ? pagDemandas() : pagConfig();
+  document.getElementById('demandas-body') ? pagDemandas() : pagConfig();
 }
 
 // BACKUP

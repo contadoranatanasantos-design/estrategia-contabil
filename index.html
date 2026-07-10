@@ -1147,6 +1147,7 @@ async function verSubPasta(clienteId, pasta) {
         <button class="btn btn-sm" onclick="gerarDiagnostico('${clienteId}')"><i class="ti ti-sparkles"></i> Gerar rascunho a partir do último arquivo</button>
       </div>` : ''}
     </div>`;
+  if (pasta === 'situacao' && documentos.length > 0) gerarDiagnostico(clienteId);
 }
 
 async function uploadDocumento(clienteId, pasta) {
@@ -1167,7 +1168,6 @@ async function uploadDocumento(clienteId, pasta) {
     await api('documentos', 'POST', { cliente_id: clienteId, mes: mesSel, ano: anoSel, nome_arquivo: file.name, tipo: pasta, storage_path: path });
     toast('Arquivo anexado!', 'success');
     await verSubPasta(clienteId, pasta);
-    if (pasta === 'situacao') await gerarDiagnostico(clienteId);
   } catch (e) {
     toast('Erro ao anexar arquivo. Tente novamente.', 'error');
   } finally {

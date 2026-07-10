@@ -1327,7 +1327,7 @@ async function enviarPastaWhats(clienteId, pasta) {
   } else if (pasta === 'nf') {
     mensagem = `Olá! Segue a nota fiscal e a declaração do Simples Nacional da ${cl.razao_social} referente a ${meses[mesSel]}/${anoSel}.`;
   } else {
-    mensagem = `Olá! Segue a guia e os documentos da apuração de impostos da ${cl.razao_social} referente a ${meses[mesSel]}/${anoSel}.`;
+    mensagem = `Prezado Cliente! Compartilhamos em anexo as guias e os documentos fiscais referente a apuração dos impostos da empresa ${cl.razao_social} relativos à competência de ${meses[mesSel]}/${anoSel}. Disponibilizamos este material com antecedência para facilitar a programação financeira da sua empresa, evitando imprevistos no caixa. Conte conosco se precisar de qualquer suporte ou esclarecimentos.\n\nAtenciosamente,\nSetor Fiscal | Estratégia Contábil`;
   }
   window.open(`https://web.whatsapp.com/send?phone=${numero}&text=${encodeURIComponent(mensagem)}`, '_blank');
 }

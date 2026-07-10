@@ -123,6 +123,7 @@
       <div class="nav-section">Operacional</div>
       <div class="nav-item" onclick="ir('demandas',this)"><i class="ti ti-checkbox"></i> Gestão de Tarefas</div>
       <div class="nav-item" onclick="ir('empresas',this)"><i class="ti ti-building"></i> Empresas</div>
+      <div class="nav-item" onclick="ir('certificados',this)"><i class="ti ti-certificate"></i> Certificado Digital</div>
       <div class="nav-section">Financeiro</div>
       <div class="nav-item" onclick="ir('receber',this)"><i class="ti ti-trending-up"></i> Contas a receber</div>
       <div class="nav-item" onclick="ir('pagar',this)"><i class="ti ti-trending-down"></i> Contas a pagar</div>
@@ -253,7 +254,7 @@ document.getElementById('login-btn').onclick = login;
 document.getElementById('login-senha').onkeydown = e => { if(e.key==='Enter') login(); };
 
 // NAVEGAÇÃO
-const titulos = { dashboard:'Dashboard', clientes:'Carteira de Clientes', demandas:'Gestão de Tarefas', empresas:'Empresas', receber:'Contas a receber', pagar:'Contas a pagar', relatorios:'Relatórios', configuracoes:'Configurações' };
+const titulos = { dashboard:'Dashboard', clientes:'Carteira de Clientes', demandas:'Gestão de Tarefas', empresas:'Empresas', certificados:'Certificado Digital', receber:'Contas a receber', pagar:'Contas a pagar', relatorios:'Relatórios', configuracoes:'Configurações' };
 function ir(pag, el) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   if (el) el.classList.add('active');
@@ -261,7 +262,7 @@ function ir(pag, el) {
   document.getElementById('page-title').textContent = titulos[pag] || pag;
   const c = document.getElementById('content');
   c.innerHTML = '<div style="text-align:center;padding:40px;color:#9CA3AF"><i class="ti ti-loader" style="font-size:32px"></i><br>Carregando...</div>';
-  setTimeout(() => { if(pag==='dashboard') pagDashboard(); else if(pag==='clientes') pagClientes(); else if(pag==='demandas') pagDemandas(); else if(pag==='empresas') pagEmpresas(); else if(pag==='receber') pagReceber(); else if(pag==='pagar') pagPagar(); else if(pag==='relatorios') pagRelatorios(); else if(pag==='configuracoes') pagConfig(); }, 200);
+  setTimeout(() => { if(pag==='dashboard') pagDashboard(); else if(pag==='clientes') pagClientes(); else if(pag==='demandas') pagDemandas(); else if(pag==='empresas') pagEmpresas(); else if(pag==='certificados') pagCertificados(); else if(pag==='receber') pagReceber(); else if(pag==='pagar') pagPagar(); else if(pag==='relatorios') pagRelatorios(); else if(pag==='configuracoes') pagConfig(); }, 200);
 }
 
 function toast(msg, tipo='') { const t=document.getElementById('toast'); t.textContent=msg; t.className=`toast show ${tipo}`; setTimeout(()=>t.className='toast',3000); }
@@ -278,6 +279,13 @@ async function pagDashboard() {
   const pendentes = totalDemandas - feitos;
   const pctFeito = totalDemandas > 0 ? Math.round(feitos/totalDemandas*100) : 0;
   const pctPendente = totalDemandas > 0 ? 100 - pctFeito : 0;
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  const em30dias = new Date(hoje); em30dias.setDate(em30dias.getDate()+30);
+  const certs = await api('certificados?select=data_vencimento,clientes(razao_social)');
+  const certsAlerta = certs
+    .filter(cf => cf.data_vencimento && new Date(cf.data_vencimento+'T00:00:00') <= em30dias)
+    .map(cf => ({ nome: cf.clientes?.razao_social||'—', venc: cf.data_vencimento, vencido: new Date(cf.data_vencimento+'T00:00:00') < hoje }))
+    .sort((a,b) => new Date(a.venc) - new Date(b.venc));
   const c = document.getElementById('content');
   const total = clientes.reduce((s,x)=>s+(x.honorario||0),0);
   c.innerHTML = `
@@ -300,6 +308,19 @@ async function pagDashboard() {
         <div class="metric-sub">${pctFeito}% do total concluído</div>
       </div>
     </div>
+    ${certsAlerta.length > 0 ? `
+    <div class="card" style="border-left:4px solid var(--danger)">
+      <div class="card-header">
+        <div class="card-title" style="color:var(--danger)">⚠️ Certificados digitais vencendo</div>
+        <button class="btn btn-sm" onclick="ir('certificados')">Ver todos →</button>
+      </div>
+      <div class="card-body" style="padding-top:0">
+        ${certsAlerta.map(cf => `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px">
+          <span>${cf.nome}</span>
+          <span class="badge ${cf.vencido?'badge-danger':'badge-warning'}">${cf.vencido?'Vencido em':'Vence em'} ${formatarDataBR(cf.venc)}</span>
+        </div>`).join('')}
+      </div>
+    </div>` : ''}
     <div class="card"><div class="card-header"><div class="card-title">🚀 Próximos passos</div></div><div class="card-body"><div style="display:flex;flex-direction:column;gap:10px;font-size:13px;color:#4B5563"><div>1️⃣ Cadastre as obrigações em <strong>Configurações</strong></div><div>2️⃣ Cadastre seus clientes com honorários e obrigações</div><div>3️⃣ Acompanhe as demandas mensais e dê baixa ao concluir</div><div>4️⃣ Controle honorários e despesas no financeiro</div></div></div></div>`;
 }
 
@@ -1309,6 +1330,210 @@ async function enviarPastaWhats(clienteId, pasta) {
   } else {
     mensagem = `Olá! Segue a guia e os documentos da apuração de impostos da ${cl.razao_social} referente a ${meses[mesSel]}/${anoSel}.`;
   }
+  window.open(`https://web.whatsapp.com/send?phone=${numero}&text=${encodeURIComponent(mensagem)}`, '_blank');
+}
+
+// CERTIFICADO DIGITAL
+let clientesCertificados = [];
+let certificadosMap = {};
+
+function statusCertificado(dataVencimento) {
+  if (!dataVencimento) return { label: 'Sem certificado', badge: 'badge-warning' };
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  const venc = new Date(dataVencimento + 'T00:00:00');
+  const dias = Math.round((venc - hoje) / 86400000);
+  if (dias < 0) return { label: 'Vencido', badge: 'badge-danger', dias };
+  if (dias <= 30) return { label: `Vence em ${dias} dia(s)`, badge: 'badge-warning', dias };
+  return { label: 'Válido', badge: 'badge-success', dias };
+}
+
+let filtroCertificadoAtivo = 'todos';
+
+function certificadoPassaFiltro(cl) {
+  if (filtroCertificadoAtivo === 'todos') return true;
+  const cert = certificadosMap[cl.id];
+  if (!cert || !cert.data_vencimento) return false;
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  const venc = new Date(cert.data_vencimento + 'T00:00:00');
+  const dias = Math.round((venc - hoje) / 86400000);
+  if (filtroCertificadoAtivo === 'vencidos') return dias < 0;
+  if (filtroCertificadoAtivo === '30dias') return dias >= 0 && dias <= 30;
+  if (filtroCertificadoAtivo === '15dias') return dias >= 0 && dias <= 15;
+  return true;
+}
+
+function definirFiltroCertificado(f) {
+  filtroCertificadoAtivo = f;
+  document.querySelectorAll('.filtro-cert-btn').forEach(b => b.classList.remove('btn-navy'));
+  document.getElementById('filtro-cert-'+f).classList.add('btn-navy');
+  filtrarCertificados();
+}
+
+async function pagCertificados() {
+  filtroCertificadoAtivo = 'todos';
+  const clientes = await api('clientes?select=id,razao_social,telefone&status=eq.Ativo&order=razao_social');
+  const certs = await api('certificados?select=*');
+  certificadosMap = {};
+  certs.forEach(c => { certificadosMap[c.cliente_id] = c; });
+  clientesCertificados = clientes;
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  let countVencidos = 0, count30 = 0, count15 = 0;
+  clientes.forEach(cl => {
+    const cert = certificadosMap[cl.id];
+    if (!cert?.data_vencimento) return;
+    const dias = Math.round((new Date(cert.data_vencimento+'T00:00:00') - hoje) / 86400000);
+    if (dias < 0) countVencidos++;
+    if (dias >= 0 && dias <= 30) count30++;
+    if (dias >= 0 && dias <= 15) count15++;
+  });
+  const c = document.getElementById('content');
+  c.innerHTML = `
+    <div class="page-header">
+      <div class="page-header-title">Certificado Digital</div>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+      <button class="btn btn-sm filtro-cert-btn btn-navy" id="filtro-cert-todos" onclick="definirFiltroCertificado('todos')">Todos (${clientes.length})</button>
+      <button class="btn btn-sm filtro-cert-btn" id="filtro-cert-vencidos" onclick="definirFiltroCertificado('vencidos')">Vencidos (${countVencidos})</button>
+      <button class="btn btn-sm filtro-cert-btn" id="filtro-cert-30dias" onclick="definirFiltroCertificado('30dias')">A vencer em 30 dias (${count30})</button>
+      <button class="btn btn-sm filtro-cert-btn" id="filtro-cert-15dias" onclick="definirFiltroCertificado('15dias')">A vencer em 15 dias (${count15})</button>
+    </div>
+    <div class="field" style="max-width:360px;margin-bottom:16px">
+      <div style="position:relative">
+        <i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#9CA3AF"></i>
+        <input id="busca-certificado" placeholder="Buscar empresa..." oninput="filtrarCertificados()" style="height:38px;padding:0 10px 0 34px;border-radius:8px;border:1.5px solid #E5E7EB;font-size:13px;width:100%">
+      </div>
+    </div>
+    <div class="card">
+      <table class="table">
+        <thead><tr><th>Empresa</th><th>Arquivo</th><th>Baixado em</th><th>Vence em</th><th>Status</th><th>Ações</th></tr></thead>
+        <tbody id="tb-certificados">${renderLinhasCertificados(clientesCertificados)}</tbody>
+      </table>
+    </div>
+    ${modalCertificadoHTML()}`;
+}
+
+function renderLinhasCertificados(lista) {
+  if (lista.length === 0) return '<tr><td colspan="6" style="text-align:center;padding:24px;color:#9CA3AF">Nenhuma empresa encontrada.</td></tr>';
+  return lista.map(cl => {
+    const cert = certificadosMap[cl.id];
+    const st = statusCertificado(cert?.data_vencimento);
+    const podeAlertar = cert && (st.badge === 'badge-warning' || st.badge === 'badge-danger') && cl.telefone;
+    return `<tr>
+      <td style="font-weight:500">${cl.razao_social}</td>
+      <td>${cert ? cert.nome_arquivo : '—'}</td>
+      <td>${cert?.data_download ? formatarDataBR(cert.data_download) : '—'}</td>
+      <td>${cert?.data_vencimento ? formatarDataBR(cert.data_vencimento) : '—'}</td>
+      <td><span class="badge ${st.badge}">${st.label}</span></td>
+      <td><div style="display:flex;gap:6px">
+        <button class="btn btn-sm btn-navy" onclick="abrirModalCertificado('${cl.id}')"><i class="ti ti-upload"></i> ${cert?'Substituir':'Anexar'}</button>
+        ${cert ? `<button class="btn btn-sm" onclick="baixarCertificado('${cl.id}')"><i class="ti ti-download"></i></button>` : ''}
+        ${cert ? `<button class="btn btn-sm btn-danger" onclick="excluirCertificado('${cl.id}')"><i class="ti ti-trash"></i></button>` : ''}
+        ${podeAlertar ? `<button class="btn btn-sm btn-success" onclick="enviarAlertaCertificado('${cl.id}')"><i class="ti ti-brand-whatsapp"></i></button>` : ''}
+      </div></td>
+    </tr>`;
+  }).join('');
+}
+
+function filtrarCertificados() {
+  const termo = document.getElementById('busca-certificado').value.trim().toLowerCase();
+  const filtrados = clientesCertificados.filter(cl => (cl.razao_social||'').toLowerCase().includes(termo) && certificadoPassaFiltro(cl));
+  document.getElementById('tb-certificados').innerHTML = renderLinhasCertificados(filtrados);
+}
+
+function modalCertificadoHTML() {
+  return `
+    <div class="overlay" id="ov-certificado">
+      <div class="modal" style="width:440px">
+        <div class="modal-title" id="modal-certificado-titulo">Certificado Digital</div>
+        <div class="modal-sub" id="modal-certificado-sub"></div>
+        <div class="field"><label>Arquivo do certificado</label><input type="file" id="cert-arquivo"></div>
+        <div class="form-grid-2">
+          <div class="field"><label>Data do download</label><input type="date" id="cert-data-download"></div>
+          <div class="field"><label>Data de vencimento *</label><input type="date" id="cert-data-vencimento"></div>
+        </div>
+        <div class="modal-footer">
+          <input type="hidden" id="cert-cliente-id">
+          <button class="btn" onclick="fecharModal('ov-certificado')">Cancelar</button>
+          <button class="btn btn-navy" onclick="salvarCertificado()"><i class="ti ti-check"></i> Salvar</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function abrirModalCertificado(clienteId) {
+  const cl = clientesCertificados.find(c => c.id === clienteId);
+  document.getElementById('cert-cliente-id').value = clienteId;
+  document.getElementById('modal-certificado-titulo').textContent = certificadosMap[clienteId] ? 'Substituir certificado' : 'Anexar certificado';
+  document.getElementById('modal-certificado-sub').textContent = (cl?.razao_social||'') + (certificadosMap[clienteId] ? ' — o certificado atual será substituído' : '');
+  document.getElementById('cert-arquivo').value = '';
+  document.getElementById('cert-data-download').value = new Date().toISOString().split('T')[0];
+  document.getElementById('cert-data-vencimento').value = '';
+  document.getElementById('ov-certificado').classList.add('show');
+}
+
+async function salvarCertificado() {
+  const clienteId = document.getElementById('cert-cliente-id').value;
+  const file = document.getElementById('cert-arquivo').files[0];
+  const dataDownload = document.getElementById('cert-data-download').value;
+  const dataVencimento = document.getElementById('cert-data-vencimento').value;
+  if (!file) { toast('Escolha o arquivo do certificado!', 'error'); return; }
+  if (!dataVencimento) { toast('Informe a data de vencimento!', 'error'); return; }
+  const btn = document.querySelector('#ov-certificado .btn-navy');
+  const original = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader"></i> Salvando...';
+  try {
+    const existente = certificadosMap[clienteId];
+    if (existente) {
+      await storageFetch(`/object/certificados/${existente.storage_path}`, { method: 'DELETE' });
+      await api(`certificados?id=eq.${existente.id}`, 'DELETE');
+    }
+    const path = `${clienteId}/${Date.now()}-${sanitizarNomeArquivo(file.name)}`;
+    const r = await storageFetch(`/object/certificados/${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': file.type || 'application/octet-stream' },
+      body: file
+    });
+    if (!r.ok) throw new Error('falha no upload');
+    await api('certificados', 'POST', { cliente_id: clienteId, nome_arquivo: file.name, storage_path: path, data_download: dataDownload || null, data_vencimento: dataVencimento });
+    toast('Certificado salvo!', 'success');
+    fecharModal('ov-certificado');
+    pagCertificados();
+  } catch (e) {
+    toast('Erro ao salvar certificado. Tente novamente.', 'error');
+  } finally {
+    btn.disabled = false; btn.innerHTML = original;
+  }
+}
+
+async function baixarCertificado(clienteId) {
+  const cert = certificadosMap[clienteId];
+  if (!cert) return;
+  const r = await storageFetch(`/object/sign/certificados/${cert.storage_path}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expiresIn: 3600 })
+  });
+  const data = await r.json();
+  if (data.signedURL) window.open(SB_URL + '/storage/v1' + data.signedURL, '_blank');
+  else toast('Erro ao gerar link de download.', 'error');
+}
+
+async function excluirCertificado(clienteId) {
+  const cert = certificadosMap[clienteId];
+  if (!cert) return;
+  if (!confirm('Excluir o certificado deste cliente?')) return;
+  await storageFetch(`/object/certificados/${cert.storage_path}`, { method: 'DELETE' });
+  await api(`certificados?id=eq.${cert.id}`, 'DELETE');
+  toast('Certificado excluído!', 'success');
+  pagCertificados();
+}
+
+async function enviarAlertaCertificado(clienteId) {
+  const cl = clientesCertificados.find(c => c.id === clienteId);
+  const cert = certificadosMap[clienteId];
+  const telefone = (cl?.telefone||'').replace(/\D/g,'');
+  if (!telefone) { toast('Este cliente não tem telefone cadastrado.', 'error'); return; }
+  const numero = telefone.startsWith('55') ? telefone : '55'+telefone;
+  const dataFormatada = formatarDataBR(cert.data_vencimento);
+  const mensagem = `Olá! Passando para avisar que o certificado digital da ${cl.razao_social} vence em ${dataFormatada}. Precisamos providenciar a renovação — qualquer dúvida, estamos à disposição!`;
   window.open(`https://web.whatsapp.com/send?phone=${numero}&text=${encodeURIComponent(mensagem)}`, '_blank');
 }
 

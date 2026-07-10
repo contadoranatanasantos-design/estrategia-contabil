@@ -284,8 +284,9 @@ async function pagDashboard() {
   const certs = await api('certificados?select=data_vencimento,clientes(razao_social)');
   const certsAlerta = certs
     .filter(cf => cf.data_vencimento && new Date(cf.data_vencimento+'T00:00:00') <= em30dias)
-    .map(cf => ({ nome: cf.clientes?.razao_social||'—', venc: cf.data_vencimento, vencido: new Date(cf.data_vencimento+'T00:00:00') < hoje }))
-    .sort((a,b) => new Date(a.venc) - new Date(b.venc));
+    .map(cf => ({ nome: cf.clientes?.razao_social||'—', venc: cf.data_vencimento, vencido: new Date(cf.data_vencimento+'T00:00:00') < hoje }));
+  const certsVencidos = certsAlerta.filter(cf => cf.vencido).length;
+  const certsProximos = certsAlerta.length - certsVencidos;
   const c = document.getElementById('content');
   const total = clientes.reduce((s,x)=>s+(x.honorario||0),0);
   c.innerHTML = `
@@ -309,16 +310,14 @@ async function pagDashboard() {
       </div>
     </div>
     ${certsAlerta.length > 0 ? `
-    <div class="card" style="border-left:4px solid var(--danger)">
+    <div class="card" style="border-left:4px solid var(--danger);cursor:pointer" onclick="ir('certificados')">
       <div class="card-header">
-        <div class="card-title" style="color:var(--danger)">⚠️ Certificados digitais vencendo</div>
-        <button class="btn btn-sm" onclick="ir('certificados')">Ver todos →</button>
+        <div class="card-title" style="color:var(--danger)">⚠️ Certificados digitais</div>
+        <button class="btn btn-sm" onclick="event.stopPropagation();ir('certificados')">Ver todos →</button>
       </div>
-      <div class="card-body" style="padding-top:0">
-        ${certsAlerta.map(cf => `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px">
-          <span>${cf.nome}</span>
-          <span class="badge ${cf.vencido?'badge-danger':'badge-warning'}">${cf.vencido?'Vencido em':'Vence em'} ${formatarDataBR(cf.venc)}</span>
-        </div>`).join('')}
+      <div class="card-body" style="padding-top:0;display:flex;gap:32px">
+        <div><span style="font-size:22px;font-weight:700;color:var(--danger)">${certsVencidos}</span> <span style="font-size:13px;color:#6B7280">vencido${certsVencidos===1?'':'s'}</span></div>
+        <div><span style="font-size:22px;font-weight:700;color:var(--warning)">${certsProximos}</span> <span style="font-size:13px;color:#6B7280">vencimento próximo</span></div>
       </div>
     </div>` : ''}
     <div class="card"><div class="card-header"><div class="card-title">🚀 Próximos passos</div></div><div class="card-body"><div style="display:flex;flex-direction:column;gap:10px;font-size:13px;color:#4B5563"><div>1️⃣ Cadastre as obrigações em <strong>Configurações</strong></div><div>2️⃣ Cadastre seus clientes com honorários e obrigações</div><div>3️⃣ Acompanhe as demandas mensais e dê baixa ao concluir</div><div>4️⃣ Controle honorários e despesas no financeiro</div></div></div></div>`;
@@ -1352,6 +1351,7 @@ let filtroCertificadoAtivo = 'todos';
 function certificadoPassaFiltro(cl) {
   if (filtroCertificadoAtivo === 'todos') return true;
   const cert = certificadosMap[cl.id];
+  if (filtroCertificadoAtivo === 'semcert') return !cert || !cert.data_vencimento;
   if (!cert || !cert.data_vencimento) return false;
   const hoje = new Date(); hoje.setHours(0,0,0,0);
   const venc = new Date(cert.data_vencimento + 'T00:00:00');
@@ -1377,10 +1377,10 @@ async function pagCertificados() {
   certs.forEach(c => { certificadosMap[c.cliente_id] = c; });
   clientesCertificados = clientes;
   const hoje = new Date(); hoje.setHours(0,0,0,0);
-  let countVencidos = 0, count30 = 0, count15 = 0;
+  let countVencidos = 0, count30 = 0, count15 = 0, countSemCert = 0;
   clientes.forEach(cl => {
     const cert = certificadosMap[cl.id];
-    if (!cert?.data_vencimento) return;
+    if (!cert?.data_vencimento) { countSemCert++; return; }
     const dias = Math.round((new Date(cert.data_vencimento+'T00:00:00') - hoje) / 86400000);
     if (dias < 0) countVencidos++;
     if (dias >= 0 && dias <= 30) count30++;
@@ -1396,6 +1396,7 @@ async function pagCertificados() {
       <button class="btn btn-sm filtro-cert-btn" id="filtro-cert-vencidos" onclick="definirFiltroCertificado('vencidos')">Vencidos (${countVencidos})</button>
       <button class="btn btn-sm filtro-cert-btn" id="filtro-cert-30dias" onclick="definirFiltroCertificado('30dias')">A vencer em 30 dias (${count30})</button>
       <button class="btn btn-sm filtro-cert-btn" id="filtro-cert-15dias" onclick="definirFiltroCertificado('15dias')">A vencer em 15 dias (${count15})</button>
+      <button class="btn btn-sm filtro-cert-btn" id="filtro-cert-semcert" onclick="definirFiltroCertificado('semcert')">Sem certificado (${countSemCert})</button>
     </div>
     <div class="field" style="max-width:360px;margin-bottom:16px">
       <div style="position:relative">

@@ -119,9 +119,9 @@
     <nav class="nav">
       <div class="nav-section">Principal</div>
       <div class="nav-item active" onclick="ir('dashboard',this)"><i class="ti ti-layout-dashboard"></i> Dashboard</div>
-      <div class="nav-item" onclick="ir('clientes',this)"><i class="ti ti-users"></i> Clientes</div>
+      <div class="nav-item" onclick="ir('clientes',this)"><i class="ti ti-users"></i> Carteira de Clientes</div>
       <div class="nav-section">Operacional</div>
-      <div class="nav-item" onclick="ir('demandas',this)"><i class="ti ti-checkbox"></i> Demandas</div>
+      <div class="nav-item" onclick="ir('demandas',this)"><i class="ti ti-checkbox"></i> Gestão de Tarefas</div>
       <div class="nav-item" onclick="ir('empresas',this)"><i class="ti ti-building"></i> Empresas</div>
       <div class="nav-section">Financeiro</div>
       <div class="nav-item" onclick="ir('receber',this)"><i class="ti ti-trending-up"></i> Contas a receber</div>
@@ -253,7 +253,7 @@ document.getElementById('login-btn').onclick = login;
 document.getElementById('login-senha').onkeydown = e => { if(e.key==='Enter') login(); };
 
 // NAVEGAÇÃO
-const titulos = { dashboard:'Dashboard', clientes:'Clientes', demandas:'Demandas', empresas:'Empresas', receber:'Contas a receber', pagar:'Contas a pagar', relatorios:'Relatórios', configuracoes:'Configurações' };
+const titulos = { dashboard:'Dashboard', clientes:'Carteira de Clientes', demandas:'Gestão de Tarefas', empresas:'Empresas', receber:'Contas a receber', pagar:'Contas a pagar', relatorios:'Relatórios', configuracoes:'Configurações' };
 function ir(pag, el) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   if (el) el.classList.add('active');
@@ -338,7 +338,7 @@ async function pagClientes() {
   const c = document.getElementById('content');
   c.innerHTML = `
     <div class="page-header">
-      <div class="page-header-title">Clientes cadastrados (${clientesTodos.length})</div>
+      <div class="page-header-title">Carteira de Clientes (${clientesTodos.length})</div>
       <button class="btn btn-navy" onclick="abrirModalCliente()"><i class="ti ti-plus"></i> Novo cliente</button>
     </div>
     <div class="field" style="max-width:360px;margin-bottom:16px">
@@ -665,7 +665,7 @@ async function pagDemandas() {
   const c = document.getElementById('content');
   c.innerHTML = `
     <div class="page-header">
-      <div class="page-header-title">Demandas — ${meses[mesSel]} ${anoSel}</div>
+      <div class="page-header-title">Gestão de Tarefas — ${meses[mesSel]} ${anoSel}</div>
       <div style="display:flex;gap:8px">
         <select id="sel-mes" onchange="mesSel=parseInt(this.value);pagDemandas()" style="height:36px;padding:0 10px;border-radius:8px;border:1px solid #E5E7EB;font-size:13px">
           ${meses.map((m,i)=>`<option value="${i}" ${i===mesSel?'selected':''}>${m}</option>`).join('')}
@@ -780,7 +780,7 @@ async function renderDemandasPorCliente() {
 }
 
 async function verDemandasCliente(clienteId) {
-  const cl = (await api(`clientes?id=eq.${clienteId}&select=razao_social,observacoes`))[0];
+  const cl = (await api(`clientes?id=eq.${clienteId}&select=razao_social,observacoes_fiscais`))[0];
   const vinculos = await api(`cliente_obrigacoes?cliente_id=eq.${clienteId}&select=obrigacao_id,obrigacoes(id,nome,prazo)`);
   vinculos.sort((a,b) => (parseInt(a.obrigacoes?.prazo)||0) - (parseInt(b.obrigacoes?.prazo)||0));
   const demandas = await api(`demandas?cliente_id=eq.${clienteId}&mes=eq.${mesSel}&ano=eq.${anoSel}&feito=eq.true&select=obrigacao_id`);
@@ -805,8 +805,8 @@ async function verDemandasCliente(clienteId) {
       </div>
       <div class="card-body" style="border-bottom:1px solid var(--border)">
         <div class="field">
-          <label><i class="ti ti-pin"></i> Observação fixa (fica salva todo mês, ex: parcelamentos, particularidades do cliente)</label>
-          <textarea id="obs-cliente-demanda" placeholder="Ex: Cliente tem parcelamento na PGFN, emitir guia mensalmente...">${cl.observacoes||''}</textarea>
+          <label><i class="ti ti-pin"></i> Observação tributária (fica salva todo mês — separada das Observações do cadastro do cliente)</label>
+          <textarea id="obs-cliente-demanda" placeholder="Ex: Cliente tem parcelamento na PGFN, emitir guia mensalmente...">${cl.observacoes_fiscais||''}</textarea>
         </div>
         <button class="btn btn-sm btn-navy" onclick="salvarObsClienteDemanda('${clienteId}')"><i class="ti ti-check"></i> Salvar observação</button>
       </div>
@@ -842,8 +842,8 @@ async function toggleDemandaCliente(clienteId, obId, feito) {
 }
 
 async function salvarObsClienteDemanda(clienteId) {
-  const observacoes = document.getElementById('obs-cliente-demanda').value;
-  await api(`clientes?id=eq.${clienteId}`, 'PATCH', { observacoes });
+  const observacoes_fiscais = document.getElementById('obs-cliente-demanda').value;
+  await api(`clientes?id=eq.${clienteId}`, 'PATCH', { observacoes_fiscais });
   toast('Observação salva!', 'success');
 }
 

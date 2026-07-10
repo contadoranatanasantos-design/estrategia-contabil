@@ -1210,6 +1210,31 @@ async function baixarDocumento(i) {
   }
 }
 
+async function baixarTodosDocumentos(clienteId, pasta) {
+  const documentos = await api(`documentos?cliente_id=eq.${clienteId}&mes=eq.${mesSel}&ano=eq.${anoSel}&tipo=eq.${pasta}&order=created_at`);
+  let baixados = 0;
+  for (const d of documentos) {
+    try {
+      const r = await storageFetch(`/object/sign/documentos/${d.storage_path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expiresIn: 3600 })
+      });
+      const data = await r.json();
+      if (!data.signedURL) continue;
+      const fileR = await fetch(SB_URL + '/storage/v1' + data.signedURL);
+      const blob = await fileR.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = d.nome_arquivo;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      baixados++;
+    } catch (e) { /* segue para o próximo arquivo */ }
+  }
+  return baixados;
+}
+
 async function excluirDocumento(i) {
   const d = window._documentosAtual[i];
   if (!confirm(`Excluir "${d.nome_arquivo}"?`)) return;
@@ -1330,6 +1355,10 @@ async function enviarPastaWhats(clienteId, pasta) {
     mensagem = `Prezado Cliente!\n\nCompartilhamos em anexo as guias e os documentos fiscais referente a apuração dos impostos da empresa ${cl.razao_social} relativos à competência de ${meses[mesSel]}/${anoSel}.\n\nDisponibilizamos este material com antecedência para facilitar a programação financeira da sua empresa, evitando imprevistos no caixa. Conte conosco se precisar de qualquer suporte ou esclarecimentos.\n\nAtenciosamente,\nSetor Fiscal | Estratégia Contábil`;
   }
   window.open(`https://web.whatsapp.com/send?phone=${numero}&text=${encodeURIComponent(mensagem)}`, '_blank');
+  toast('Baixando os arquivos para você anexar...', 'success');
+  const qtd = await baixarTodosDocumentos(clienteId, pasta);
+  if (qtd > 0) toast(`${qtd} arquivo(s) baixado(s)! Agora é só anexar no WhatsApp.`, 'success');
+  else toast('Nenhum arquivo encontrado nesta pasta para baixar.', 'error');
 }
 
 // CERTIFICADO DIGITAL

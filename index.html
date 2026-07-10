@@ -1354,7 +1354,7 @@ async function enviarPastaWhats(clienteId, pasta) {
   } else {
     mensagem = `Prezado Cliente!\n\nCompartilhamos em anexo as guias e os documentos fiscais referente a apuração dos impostos da empresa ${cl.razao_social} relativos à competência de ${meses[mesSel]}/${anoSel}.\n\nDisponibilizamos este material com antecedência para facilitar a programação financeira da sua empresa, evitando imprevistos no caixa. Conte conosco se precisar de qualquer suporte ou esclarecimentos.\n\nAtenciosamente,\nSetor Fiscal | Estratégia Contábil`;
   }
-  window.open(`https://web.whatsapp.com/send?phone=${numero}&text=${encodeURIComponent(mensagem)}`, '_blank');
+  window.open(`whatsapp://send?phone=${numero}&text=${encodeURIComponent(mensagem)}`, '_blank');
   toast('Baixando os arquivos para você anexar...', 'success');
   const qtd = await baixarTodosDocumentos(clienteId, pasta);
   if (qtd > 0) toast(`${qtd} arquivo(s) baixado(s)! Agora é só anexar no WhatsApp.`, 'success');
@@ -1564,7 +1564,7 @@ async function enviarAlertaCertificado(clienteId) {
   const numero = telefone.startsWith('55') ? telefone : '55'+telefone;
   const dataFormatada = formatarDataBR(cert.data_vencimento);
   const mensagem = `Olá! Passando para avisar que o certificado digital da ${cl.razao_social} vence em ${dataFormatada}. Precisamos providenciar a renovação — qualquer dúvida, estamos à disposição!`;
-  window.open(`https://web.whatsapp.com/send?phone=${numero}&text=${encodeURIComponent(mensagem)}`, '_blank');
+  window.open(`whatsapp://send?phone=${numero}&text=${encodeURIComponent(mensagem)}`, '_blank');
 }
 
 // FINANCEIRO - RECEBER
@@ -2076,7 +2076,7 @@ async function renderRelatorioAniversariantes() {
 async function enviarParabens(i) {
   const { numero, mensagem } = window._aniversariantesMsgs[i];
   const texto = encodeURIComponent(mensagem);
-  window.open(`https://web.whatsapp.com/send?phone=${numero}&text=${texto}`, '_blank');
+  window.open(`whatsapp://send?phone=${numero}&text=${texto}`, '_blank');
 }
 
 function fecharModal(id) { document.getElementById(id).classList.remove('show'); }

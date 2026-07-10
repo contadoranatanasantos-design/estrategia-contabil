@@ -1015,7 +1015,8 @@ async function toggleDemanda(clienteId, obId, feito, obNome) {
 // EMPRESAS (documentos)
 const PASTAS_EMPRESA = {
   fiscal: { label: 'DEP FISCAL', icone: 'ti-receipt', filhos: {
-    guias: { label: 'Apuração / Guias', icone: 'ti-receipt', diagnostico: true },
+    guias: { label: 'Guias', icone: 'ti-receipt' },
+    situacao: { label: 'Situação Fiscal', icone: 'ti-file-search', diagnostico: true },
     nf: { label: 'Notas Fiscais', icone: 'ti-file-invoice' },
     xml_entradas: { label: 'XML NF - Entradas (Compras)', icone: 'ti-arrow-down' },
     xml_saidas: { label: 'XML NF - Saídas (Faturamento)', icone: 'ti-arrow-up' },
@@ -1174,6 +1175,7 @@ function extrairCNPJ(texto) {
 function detectarPastaDocumento(texto) {
   const t = texto.toUpperCase();
   if (t.includes('NOTA FISCAL') || t.includes('NFS-E') || t.includes('NFSE')) return 'nf';
+  if (t.includes('SITUAÇÃO FISCAL') || t.includes('SITUACAO FISCAL') || t.includes('PENDENCIA') || t.includes('PENDÊNCIA')) return 'situacao';
   return 'guias';
 }
 
@@ -1214,6 +1216,7 @@ function renderLoteResultado(clientes) {
           </select></td>
           <td><select onchange="window._loteArquivos[${i}].pasta=this.value">
             <option value="guias" ${item.pasta==='guias'?'selected':''}>${PASTAS_EMPRESA.fiscal.filhos.guias.label}</option>
+            <option value="situacao" ${item.pasta==='situacao'?'selected':''}>${PASTAS_EMPRESA.fiscal.filhos.situacao.label}</option>
             <option value="nf" ${item.pasta==='nf'?'selected':''}>${PASTAS_EMPRESA.fiscal.filhos.nf.label}</option>
           </select></td>
         </tr>`).join('')}
@@ -1328,7 +1331,7 @@ async function verArquivos(clienteId, pathStr) {
   const path = pathStr.split(',');
   const tipo = path[path.length-1];
   const info = pastaNode(path);
-  const cl = (await api(`clientes?id=eq.${clienteId}&select=razao_social,telefone`))[0];
+  const cl = (await api(`clientes?id=eq.${clienteId}&select=razao_social,telefone,observacoes_fiscais`))[0];
   const documentos = await api(`documentos?cliente_id=eq.${clienteId}&mes=eq.${mesSel}&ano=eq.${anoSel}&tipo=eq.${tipo}&order=created_at`);
   window._documentosAtual = documentos;
   const labels = caminhoLabels(path);
@@ -1370,8 +1373,22 @@ async function verArquivos(clienteId, pathStr) {
         </div>
         <button class="btn btn-sm" onclick="gerarDiagnostico('${clienteId}')"><i class="ti ti-sparkles"></i> Gerar rascunho a partir do último arquivo</button>
       </div>` : ''}
+      ${tipo === 'guias' ? `
+      <div class="card-body" style="border-top:1px solid var(--border)">
+        <div class="field">
+          <label><i class="ti ti-pin"></i> Observação tributária (parcelamentos, particularidades — fica salva de mês a mês, mesmo campo de Gestão de Tarefas)</label>
+          <textarea id="obs-guias-cliente" placeholder="Ex: Cliente tem parcelamento na PGFN, emitir guia mensalmente...">${cl.observacoes_fiscais||''}</textarea>
+        </div>
+        <button class="btn btn-sm" onclick="salvarObsGuias('${clienteId}')"><i class="ti ti-device-floppy"></i> Salvar observação</button>
+      </div>` : ''}
     </div>`;
   if (info.diagnostico && documentos.length > 0) gerarDiagnostico(clienteId);
+}
+
+async function salvarObsGuias(clienteId) {
+  const observacoes_fiscais = document.getElementById('obs-guias-cliente').value;
+  await api(`clientes?id=eq.${clienteId}`, 'PATCH', { observacoes_fiscais });
+  toast('Observação salva!', 'success');
 }
 
 async function verArquivosPastinha(clienteId, pathStr, subpasta) {
@@ -1600,9 +1617,11 @@ async function enviarPastaWhats(clienteId, pathStr, subpasta) {
   if (!telefone) { toast('Este cliente não tem telefone cadastrado.', 'error'); return; }
   const numero = telefone.startsWith('55') ? telefone : '55'+telefone;
   let mensagem;
-  if (info.diagnostico) {
+  if (tipo === 'guias') {
+    mensagem = `Prezado Cliente!\n\nCompartilhamos em anexo as guias e os documentos fiscais referente a apuração dos impostos da empresa ${cl.razao_social} relativos à competência de ${meses[mesSel]}/${anoSel}.\n\nDisponibilizamos este material com antecedência para facilitar a programação financeira da sua empresa, evitando imprevistos no caixa. Conte conosco se precisar de qualquer suporte ou esclarecimentos.\n\nAtenciosamente,\nSetor Fiscal | Estratégia Contábil`;
+  } else if (info.diagnostico) {
     const textoEditado = document.getElementById('diagnostico-texto')?.value.trim();
-    mensagem = textoEditado || `Prezado Cliente!\n\nCompartilhamos em anexo as guias e os documentos fiscais referente a apuração dos impostos da empresa ${cl.razao_social} relativos à competência de ${meses[mesSel]}/${anoSel}.\n\nDisponibilizamos este material com antecedência para facilitar a programação financeira da sua empresa, evitando imprevistos no caixa. Conte conosco se precisar de qualquer suporte ou esclarecimentos.\n\nAtenciosamente,\nSetor Fiscal | Estratégia Contábil`;
+    mensagem = textoEditado || `Olá! Segue a situação fiscal da ${cl.razao_social} referente a ${meses[mesSel]}/${anoSel}. Revise com atenção antes de enviar.`;
   } else {
     const assunto = subpasta ? `${info.label} — ${subpasta}` : info.label;
     mensagem = `Prezado Cliente!\n\nCompartilhamos em anexo os documentos de ${assunto} da empresa ${cl.razao_social}.\n\nConte conosco se precisar de qualquer suporte ou esclarecimentos.\n\nAtenciosamente,\nEstratégia Contábil`;

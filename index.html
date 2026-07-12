@@ -1172,6 +1172,11 @@ function extrairCNPJ(texto) {
   return match ? match[0].replace(/\D/g, '') : null;
 }
 
+function normalizarTexto(s) {
+  const semAcentos = (s||'').normalize('NFD').replace(new RegExp(String.fromCharCode(91,92,117,48,51,48,48,45,92,117,48,51,54,102,93), 'g'), '');
+  return semAcentos.toUpperCase().replace(/\s+/g,' ').trim();
+}
+
 function detectarPastaDocumento(texto) {
   const t = texto.toUpperCase();
   if (t.includes('NOTA FISCAL') || t.includes('NFS-E') || t.includes('NFSE')) return 'nf';
@@ -1185,7 +1190,7 @@ async function processarLote() {
   if (files.length === 0) return;
   const resultado = document.getElementById('lote-resultado');
   resultado.innerHTML = '<div style="text-align:center;padding:20px;color:#9CA3AF"><i class="ti ti-loader"></i> Lendo arquivos e identificando clientes...</div>';
-  const clientes = await api('clientes?select=id,razao_social,cnpj&order=razao_social');
+  const clientes = await api('clientes?select=id,razao_social,nome_fantasia,cnpj&order=razao_social');
   window._loteArquivos = [];
   for (const file of files) {
     let clienteId = '', texto = '';
@@ -1194,6 +1199,14 @@ async function processarLote() {
       const cnpjEncontrado = extrairCNPJ(texto);
       if (cnpjEncontrado) {
         const cliente = clientes.find(c => (c.cnpj||'').replace(/\D/g,'') === cnpjEncontrado);
+        if (cliente) clienteId = cliente.id;
+      }
+      if (!clienteId) {
+        const textoNorm = normalizarTexto(texto);
+        const cliente = clientes.find(c =>
+          (c.razao_social && normalizarTexto(c.razao_social).length > 4 && textoNorm.includes(normalizarTexto(c.razao_social))) ||
+          (c.nome_fantasia && normalizarTexto(c.nome_fantasia).length > 4 && textoNorm.includes(normalizarTexto(c.nome_fantasia)))
+        );
         if (cliente) clienteId = cliente.id;
       }
     } catch (e) {}

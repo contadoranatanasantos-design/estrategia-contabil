@@ -6,6 +6,7 @@
   <title>Estratégia Contábil</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.44.0/tabler-icons.min.css">
   <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     :root { --navy: #1B2A4A; --gold: #B8922A; --gold-light: #FFF8EC; --surface-0: #F8F9FA; --border: #E5E7EB; --text-primary: #111827; --text-muted: #9CA3AF; --success: #16a34a; --danger: #dc2626; --warning: #d97706; --radius: 8px; }
@@ -1897,28 +1898,60 @@ async function enviarAlertaCertificado(clienteId) {
 }
 
 // FINANCEIRO - RECEBER
-async function pagReceber() {
-  const clientes = await api('clientes?status=eq.Ativo&select=*&order=razao_social');
-  const pagamentos = await api(`honorarios_pagamentos?mes=eq.${mesSel}&ano=eq.${anoSel}`);
-  const c = document.getElementById('content');
-  let totalReceber = 0, totalRecebido = 0;
-  const rows = clientes.map(cl => {
-    const pag = pagamentos.find(p => p.cliente_id === cl.id);
+let clientesReceberTodos = [];
+let pagamentosReceberTodos = [];
+
+function statusHonorario(cl, recebido) {
+  if (recebido >= (cl.honorario||0)) return { label: 'Quitado', badge: 'badge-success' };
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  const anoAtual = hoje.getFullYear(), mesAtual = hoje.getMonth();
+  let vencido;
+  if (anoSel < anoAtual || (anoSel === anoAtual && mesSel < mesAtual)) vencido = true;
+  else if (anoSel > anoAtual || (anoSel === anoAtual && mesSel > mesAtual)) vencido = false;
+  else vencido = hoje.getDate() > (cl.dia_vencimento || 5);
+  return vencido ? { label: 'Inadimplente', badge: 'badge-danger' } : { label: 'A vencer', badge: 'badge-warning' };
+}
+
+function renderLinhasReceber(lista) {
+  const rows = lista.map(cl => {
+    const pag = pagamentosReceberTodos.find(p => p.cliente_id === cl.id);
     const recebido = pag?.valor_recebido || 0;
     const aberto = (cl.honorario||0) - recebido;
-    totalReceber += (cl.honorario||0);
-    totalRecebido += recebido;
-    const status = recebido <= 0 ? 'Inadimplente' : recebido >= (cl.honorario||0) ? 'Pago' : 'Parcial';
-    const badgeClass = status === 'Pago' ? 'badge-success' : status === 'Parcial' ? 'badge-warning' : 'badge-danger';
+    const status = statusHonorario(cl, recebido);
     return `<tr>
       <td style="font-weight:500">${cl.razao_social}${pag ? `<br><span style="font-size:11px;color:#9CA3AF">Recebido em ${pag.data_recebimento||'—'}</span>` : ''}</td>
       <td>${fmt(cl.honorario)}</td>
       <td>${fmt(recebido)}</td>
       <td>${aberto > 0 ? `<span style="color:var(--danger);font-weight:500">${fmt(aberto)}</span>` : '<span style="color:var(--success)">Quitado</span>'}</td>
-      <td><span class="badge ${badgeClass}">${status}</span></td>
-      <td>${status !== 'Pago' ? `<button class="btn btn-sm btn-navy" onclick="abrirBaixaHon('${cl.id}','${cl.razao_social}',${cl.honorario},${recebido})"><i class="ti ti-cash"></i> Baixa</button>` : '✅'}</td>
+      <td><span class="badge ${status.badge}">${status.label}</span></td>
+      <td>${status.label !== 'Quitado' ? `<button class="btn btn-sm btn-navy" onclick="abrirBaixaHon('${cl.id}','${cl.razao_social}',${cl.honorario},${recebido})"><i class="ti ti-cash"></i> Baixa</button>` : '✅'}</td>
     </tr>`;
   }).join('');
+  return rows || '<tr><td colspan="6" style="text-align:center;padding:24px;color:#9CA3AF">Nenhum cliente encontrado.</td></tr>';
+}
+
+function filtrarReceber() {
+  const termo = document.getElementById('busca-receber').value.trim().toLowerCase();
+  const termoDigitos = termo.replace(/\D/g,'');
+  const filtrados = clientesReceberTodos.filter(cl => {
+    const nomeBate = (cl.razao_social||'').toLowerCase().includes(termo);
+    const cnpjDigitos = (cl.cnpj||'').replace(/\D/g,'');
+    const cnpjBate = termoDigitos && cnpjDigitos.includes(termoDigitos);
+    return nomeBate || cnpjBate;
+  });
+  document.getElementById('tb-receber').innerHTML = renderLinhasReceber(filtrados);
+}
+
+async function pagReceber() {
+  clientesReceberTodos = await api('clientes?status=eq.Ativo&select=*&order=razao_social');
+  pagamentosReceberTodos = await api(`honorarios_pagamentos?mes=eq.${mesSel}&ano=eq.${anoSel}`);
+  const c = document.getElementById('content');
+  let totalReceber = 0, totalRecebido = 0;
+  clientesReceberTodos.forEach(cl => {
+    const pag = pagamentosReceberTodos.find(p => p.cliente_id === cl.id);
+    totalReceber += (cl.honorario||0);
+    totalRecebido += pag?.valor_recebido || 0;
+  });
 
   c.innerHTML = `
     <div class="page-header">
@@ -1934,12 +1967,18 @@ async function pagReceber() {
       <div class="metric"><div class="metric-label">Total a receber</div><div class="metric-value">${fmt(totalReceber)}</div></div>
       <div class="metric"><div class="metric-label">Recebido</div><div class="metric-value" style="color:var(--success)">${fmt(totalRecebido)}</div></div>
       <div class="metric"><div class="metric-label">Em aberto</div><div class="metric-value" style="color:var(--danger)">${fmt(totalReceber-totalRecebido)}</div></div>
-      <div class="metric"><div class="metric-label">Inadimplentes</div><div class="metric-value" style="color:var(--danger)">${clientes.filter(cl=>!(pagamentos.find(p=>p.cliente_id===cl.id)?.valor_recebido>0)).length}</div></div>
+      <div class="metric"><div class="metric-label">Inadimplentes</div><div class="metric-value" style="color:var(--danger)">${clientesReceberTodos.filter(cl=>statusHonorario(cl, pagamentosReceberTodos.find(p=>p.cliente_id===cl.id)?.valor_recebido||0).label==='Inadimplente').length}</div></div>
+    </div>
+    <div class="field" style="max-width:360px;margin-bottom:16px">
+      <div style="position:relative">
+        <i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#9CA3AF"></i>
+        <input id="busca-receber" placeholder="Buscar por nome ou CNPJ..." oninput="filtrarReceber()" style="height:38px;padding:0 10px 0 34px;border-radius:8px;border:1.5px solid #E5E7EB;font-size:13px;width:100%">
+      </div>
     </div>
     <div class="card">
       <table class="table">
         <thead><tr><th>Cliente</th><th>Honorário</th><th>Recebido</th><th>Saldo aberto</th><th>Status</th><th>Ação</th></tr></thead>
-        <tbody>${rows||'<tr><td colspan="6" style="text-align:center;padding:24px;color:#9CA3AF">Nenhum cliente cadastrado ainda.</td></tr>'}</tbody>
+        <tbody id="tb-receber">${renderLinhasReceber(clientesReceberTodos)}</tbody>
       </table>
     </div>
     <div class="overlay" id="ov-baixa-hon">
@@ -2087,8 +2126,23 @@ async function pagConfig() {
     <div class="card">
       <div class="card-header"><div class="card-title">Backup de dados</div></div>
       <div class="card-body">
-        <div style="font-size:13px;color:#4B5563;margin-bottom:12px">Baixe uma cópia completa de todos os dados do sistema (clientes, obrigações, demandas, financeiro). Recomendado baixar periodicamente e guardar o arquivo no Google Drive ou outro local seguro.</div>
-        <button class="btn btn-navy" id="btn-backup" onclick="baixarBackup()"><i class="ti ti-download"></i> Baixar backup completo</button>
+        <div style="font-size:13px;color:#4B5563;margin-bottom:12px">Baixe uma cópia dos dados do sistema (clientes, obrigações, demandas, financeiro) em um arquivo JSON. Rápido, mas <strong>não inclui os arquivos</strong> anexados (guias, certificados, documentos).</div>
+        <button class="btn" id="btn-backup" onclick="baixarBackup()"><i class="ti ti-download"></i> Baixar só os dados (rápido)</button>
+      </div>
+      <div class="card-body" style="border-top:1px solid var(--border)">
+        <div style="font-size:13px;color:#4B5563;margin-bottom:12px"><strong>Backup completo</strong>: baixa os dados <strong>e</strong> todos os arquivos anexados (certificados digitais e documentos de cada cliente), organizados em pastas, dentro de um único arquivo .zip. Pode demorar alguns minutos dependendo da quantidade de arquivos. Recomendado guardar esse arquivo no Google Drive ou outro local seguro, periodicamente.</div>
+        <button class="btn btn-navy" id="btn-backup-completo" onclick="baixarBackupCompleto()"><i class="ti ti-file-zip"></i> Baixar backup completo (dados + arquivos)</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Segurança da conta</div></div>
+      <div class="card-body">
+        <div style="font-size:13px;color:#4B5563;margin-bottom:12px">Troque sua senha de acesso ao sistema periodicamente. Use uma senha forte, com letras, números e pelo menos 8 caracteres.</div>
+        <div class="form-grid-2">
+          <div class="field"><label>Nova senha</label><input type="password" id="nova-senha" placeholder="Mínimo 8 caracteres"></div>
+          <div class="field"><label>Confirmar nova senha</label><input type="password" id="confirmar-senha" placeholder="Digite novamente"></div>
+        </div>
+        <button class="btn btn-navy" id="btn-trocar-senha" onclick="trocarSenha()" style="margin-top:8px"><i class="ti ti-lock"></i> Trocar senha</button>
       </div>
     </div>
     ${modalObrigHTML()}`;
@@ -2155,6 +2209,93 @@ async function baixarBackup() {
     toast('Backup baixado com sucesso!','success');
   } catch (e) {
     toast('Erro ao gerar backup. Tente novamente.','error');
+  } finally {
+    btn.disabled = false; btn.innerHTML = textoOriginal;
+  }
+}
+
+async function trocarSenha() {
+  const novaSenha = document.getElementById('nova-senha').value;
+  const confirmarSenha = document.getElementById('confirmar-senha').value;
+  if (novaSenha.length < 8) { toast('A senha precisa ter pelo menos 8 caracteres!', 'error'); return; }
+  if (novaSenha !== confirmarSenha) { toast('As senhas não conferem!', 'error'); return; }
+  const btn = document.getElementById('btn-trocar-senha');
+  const original = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader"></i> Trocando...';
+  try {
+    const r = await fetch(SB_URL + '/auth/v1/user', {
+      method: 'PUT',
+      headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + TOKEN, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: novaSenha })
+    });
+    if (!r.ok) throw new Error('falha ao trocar senha');
+    document.getElementById('nova-senha').value = '';
+    document.getElementById('confirmar-senha').value = '';
+    toast('Senha alterada com sucesso! Use a nova senha no próximo login.', 'success');
+  } catch (e) {
+    toast('Erro ao trocar a senha. Tente novamente.', 'error');
+  } finally {
+    btn.disabled = false; btn.innerHTML = original;
+  }
+}
+
+function sanitizarPastaBackup(nome) {
+  return (nome||'sem-nome').replace(/[\\/:*?"<>|]/g, '_').trim() || 'sem-nome';
+}
+
+async function baixarBackupCompleto() {
+  const btn = document.getElementById('btn-backup-completo');
+  const textoOriginal = btn.innerHTML;
+  btn.disabled = true;
+  try {
+    btn.innerHTML = '<i class="ti ti-loader"></i> Buscando dados...';
+    const tabelas = ['clientes','obrigacoes','cliente_obrigacoes','demandas','categorias','grupos_despesa','despesas','honorarios_pagamentos','despesas_pagamentos','documentos','certificados'];
+    const backup = { gerado_em: new Date().toISOString() };
+    for (const t of tabelas) { backup[t] = await api(`${t}?select=*`); }
+
+    const zip = new JSZip();
+    zip.file(`dados-${new Date().toISOString().split('T')[0]}.json`, JSON.stringify(backup, null, 2));
+
+    const clientesMap = {};
+    (backup.clientes||[]).forEach(cl => { clientesMap[cl.id] = cl.razao_social || cl.id; });
+
+    const arquivos = [
+      ...(backup.documentos||[]).map(d => ({ ...d, bucket: 'documentos', pastaBase: 'Documentos', subpastaExtra: d.tipo + (d.subpasta ? '/' + sanitizarPastaBackup(d.subpasta) : '') })),
+      ...(backup.certificados||[]).map(c => ({ ...c, bucket: 'certificados', pastaBase: 'Certificados', subpastaExtra: '' }))
+    ];
+
+    let feitos = 0, falhas = 0;
+    for (const arq of arquivos) {
+      feitos++;
+      btn.innerHTML = `<i class="ti ti-loader"></i> Baixando arquivo ${feitos}/${arquivos.length}...`;
+      try {
+        const r = await storageFetch(`/object/sign/${arq.bucket}/${arq.storage_path}`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expiresIn: 3600 })
+        });
+        const data = await r.json();
+        if (!data.signedURL) { falhas++; continue; }
+        const fileR = await fetch(SB_URL + '/storage/v1' + data.signedURL);
+        const blob = await fileR.blob();
+        const nomeCliente = sanitizarPastaBackup(clientesMap[arq.cliente_id] || 'sem-cliente');
+        const nomeArquivoZip = (arq.storage_path||'').split('/').pop() || arq.nome_arquivo || 'arquivo';
+        const caminho = `${arq.pastaBase}/${nomeCliente}${arq.subpastaExtra ? '/' + arq.subpastaExtra : ''}/${nomeArquivoZip}`;
+        zip.file(caminho, blob);
+      } catch (e) { falhas++; }
+    }
+
+    btn.innerHTML = '<i class="ti ti-loader"></i> Compactando arquivo final...';
+    const zipBlob = await zip.generateAsync({ type: 'blob' });
+    const url = URL.createObjectURL(zipBlob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `backup-completo-estrategia-contabil-${new Date().toISOString().split('T')[0]}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    toast(falhas > 0 ? `Backup baixado! ${falhas} arquivo(s) não puderam ser incluídos.` : 'Backup completo baixado com sucesso!', falhas > 0 ? 'error' : 'success');
+  } catch (e) {
+    toast('Erro ao gerar backup completo. Tente novamente.', 'error');
   } finally {
     btn.disabled = false; btn.innerHTML = textoOriginal;
   }

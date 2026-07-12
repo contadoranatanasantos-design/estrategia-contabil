@@ -1184,6 +1184,40 @@ function detectarPastaDocumento(texto) {
   return 'guias';
 }
 
+function palavrasSignificativas(nome) {
+  return normalizarTexto(nome).split(/[^A-Z0-9]+/).filter(p => p.length > 2);
+}
+
+function conjuntoPalavras(texto) {
+  return new Set(normalizarTexto(texto).split(/[^A-Z0-9]+/).filter(Boolean));
+}
+
+function pontuarNome(nomeCliente, palavrasAlvo) {
+  const palavras = palavrasSignificativas(nomeCliente);
+  if (palavras.length === 0) return 0;
+  const encontradas = palavras.filter(p => palavrasAlvo.has(p));
+  return encontradas.length / palavras.length;
+}
+
+function encontrarClientePorNome(clientes, textoNorm, nomeArquivoNorm) {
+  const palavrasTexto = conjuntoPalavras(textoNorm);
+  const palavrasArquivo = conjuntoPalavras(nomeArquivoNorm);
+  const candidatos = [];
+  for (const c of clientes) {
+    for (const nome of [c.razao_social, c.nome_fantasia]) {
+      if (!nome) continue;
+      const score = Math.max(pontuarNome(nome, palavrasTexto), pontuarNome(nome, palavrasArquivo));
+      if (score >= 0.5) candidatos.push({ cliente: c, score });
+    }
+  }
+  if (candidatos.length === 0) return null;
+  candidatos.sort((a,b) => b.score - a.score);
+  const melhor = candidatos[0];
+  const empatados = candidatos.filter(x => x.score === melhor.score && x.cliente.id !== melhor.cliente.id);
+  if (empatados.length > 0) return null;
+  return melhor.cliente;
+}
+
 async function processarLote() {
   const input = document.getElementById('lote-arquivos');
   const files = Array.from(input.files);
@@ -1203,16 +1237,23 @@ async function processarLote() {
       }
       if (!clienteId) {
         const textoNorm = normalizarTexto(texto);
-        const cliente = clientes.find(c =>
-          (c.razao_social && normalizarTexto(c.razao_social).length > 4 && textoNorm.includes(normalizarTexto(c.razao_social))) ||
-          (c.nome_fantasia && normalizarTexto(c.nome_fantasia).length > 4 && textoNorm.includes(normalizarTexto(c.nome_fantasia)))
-        );
+        const nomeArquivoNorm = normalizarTexto(file.name);
+        const cliente = encontrarClientePorNome(clientes, textoNorm, nomeArquivoNorm);
         if (cliente) clienteId = cliente.id;
       }
     } catch (e) {}
     window._loteArquivos.push({ file, clienteId, pasta: texto ? detectarPastaDocumento(texto) : 'guias' });
   }
   renderLoteResultado(clientes);
+}
+
+function cancelarLote() {
+  window._loteArquivos = [];
+  const input = document.getElementById('lote-arquivos');
+  if (input) input.value = '';
+  const resultado = document.getElementById('lote-resultado');
+  if (resultado) resultado.innerHTML = '';
+  toast('Importação cancelada.', '');
 }
 
 function renderLoteResultado(clientes) {
@@ -1235,7 +1276,10 @@ function renderLoteResultado(clientes) {
         </tr>`).join('')}
       </tbody>
     </table>
-    <button class="btn btn-navy" id="btn-anexar-lote" onclick="anexarLote()" style="margin-top:12px"><i class="ti ti-upload"></i> Anexar todos (${window._loteArquivos.length})</button>`;
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button class="btn btn-navy" id="btn-anexar-lote" onclick="anexarLote()"><i class="ti ti-upload"></i> Anexar todos (${window._loteArquivos.length})</button>
+      <button class="btn btn-danger" onclick="cancelarLote()"><i class="ti ti-x"></i> Cancelar importação</button>
+    </div>`;
 }
 
 async function anexarLote() {

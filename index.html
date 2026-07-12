@@ -1326,6 +1326,12 @@ async function verNivel(clienteId, pathStr) {
   c.innerHTML = `
     <div class="page-header">
       <button class="btn" onclick="${voltarOnclick}"><i class="ti ti-arrow-left"></i> Voltar</button>
+      <div style="display:flex;gap:8px">
+        <select onchange="mesSel=parseInt(this.value);verNivel('${clienteId}','${pathStr}')" style="height:36px;padding:0 10px;border-radius:8px;border:1px solid #E5E7EB;font-size:13px">
+          ${meses.map((m,i)=>`<option value="${i}" ${i===mesSel?'selected':''}>${m}</option>`).join('')}
+        </select>
+        <input type="number" value="${anoSel}" onchange="anoSel=parseInt(this.value);verNivel('${clienteId}','${pathStr}')" style="height:36px;width:80px;padding:0 10px;border-radius:8px;border:1px solid #E5E7EB;font-size:13px">
+      </div>
     </div>
     <div class="page-header-title" style="margin-bottom:16px">${cl.razao_social}${labels.length ? ' — ' + labels.join(' — ') : ''}</div>
     ${entradas.length === 0 ? '<div class="empty-state"><i class="ti ti-folder-x"></i>Nenhuma subpasta disponível para o segmento deste cliente.</div>' : entradas.map(([key, filho]) => {
@@ -1399,6 +1405,12 @@ async function verArquivos(clienteId, pathStr) {
   c.innerHTML = `
     <div class="page-header">
       <button class="btn" onclick="${voltarOnclick}"><i class="ti ti-arrow-left"></i> Voltar</button>
+      <div style="display:flex;gap:8px">
+        <select onchange="mesSel=parseInt(this.value);verArquivos('${clienteId}','${pathStr}')" style="height:36px;padding:0 10px;border-radius:8px;border:1px solid #E5E7EB;font-size:13px">
+          ${meses.map((m,i)=>`<option value="${i}" ${i===mesSel?'selected':''}>${m}</option>`).join('')}
+        </select>
+        <input type="number" value="${anoSel}" onchange="anoSel=parseInt(this.value);verArquivos('${clienteId}','${pathStr}')" style="height:36px;width:80px;padding:0 10px;border-radius:8px;border:1px solid #E5E7EB;font-size:13px">
+      </div>
     </div>
     <div class="card">
       <div class="card-header">
@@ -1409,11 +1421,16 @@ async function verArquivos(clienteId, pathStr) {
         <div class="field" style="margin-bottom:12px"><label>Arquivo</label><input type="file" id="doc-arquivo"></div>
         <button class="btn btn-navy btn-sm" id="btn-upload-doc" onclick="uploadDocumento('${clienteId}','${pathStr}')"><i class="ti ti-upload"></i> Anexar arquivo</button>
       </div>
+      ${documentos.length > 0 ? `<div style="display:flex;gap:14px;padding:10px 16px;font-size:12px">
+        <a href="#" onclick="document.querySelectorAll('.check-arquivo').forEach(c=>c.checked=true);return false;">Marcar todos</a>
+        <a href="#" onclick="document.querySelectorAll('.check-arquivo').forEach(c=>c.checked=false);return false;">Desmarcar todos</a>
+      </div>` : ''}
       <table class="table">
-        <thead><tr><th>Arquivo</th><th>Data</th><th>Ações</th></tr></thead>
+        <thead><tr><th style="width:36px"></th><th>Arquivo</th><th>Data</th><th>Ações</th></tr></thead>
         <tbody>
-          ${documentos.length === 0 ? '<tr><td colspan="3" style="text-align:center;padding:24px;color:#9CA3AF">Nenhum arquivo anexado ainda.</td></tr>' :
+          ${documentos.length === 0 ? '<tr><td colspan="4" style="text-align:center;padding:24px;color:#9CA3AF">Nenhum arquivo anexado ainda.</td></tr>' :
           documentos.map((d, i) => `<tr>
+            <td><input type="checkbox" class="check-arquivo" data-id="${d.id}" checked></td>
             <td style="font-weight:500">${d.nome_arquivo}</td>
             <td>${new Date(d.created_at).toLocaleDateString('pt-BR')}</td>
             <td><div style="display:flex;gap:6px">
@@ -1471,11 +1488,16 @@ async function verArquivosPastinha(clienteId, pathStr, subpasta) {
         <div class="field" style="margin-bottom:12px"><label>Arquivo</label><input type="file" id="doc-arquivo"></div>
         <button class="btn btn-navy btn-sm" id="btn-upload-doc" onclick="uploadDocumento('${clienteId}','${pathStr}','${subpastaEsc}')"><i class="ti ti-upload"></i> Anexar arquivo</button>
       </div>
+      ${documentos.length > 0 ? `<div style="display:flex;gap:14px;padding:10px 16px;font-size:12px">
+        <a href="#" onclick="document.querySelectorAll('.check-arquivo').forEach(c=>c.checked=true);return false;">Marcar todos</a>
+        <a href="#" onclick="document.querySelectorAll('.check-arquivo').forEach(c=>c.checked=false);return false;">Desmarcar todos</a>
+      </div>` : ''}
       <table class="table">
-        <thead><tr><th>Arquivo</th><th>Data</th><th>Ações</th></tr></thead>
+        <thead><tr><th style="width:36px"></th><th>Arquivo</th><th>Data</th><th>Ações</th></tr></thead>
         <tbody>
-          ${documentos.length === 0 ? '<tr><td colspan="3" style="text-align:center;padding:24px;color:#9CA3AF">Nenhum arquivo anexado ainda.</td></tr>' :
+          ${documentos.length === 0 ? '<tr><td colspan="4" style="text-align:center;padding:24px;color:#9CA3AF">Nenhum arquivo anexado ainda.</td></tr>' :
           documentos.map((d, i) => `<tr>
+            <td><input type="checkbox" class="check-arquivo" data-id="${d.id}" checked></td>
             <td style="font-weight:500">${d.nome_arquivo}</td>
             <td>${new Date(d.created_at).toLocaleDateString('pt-BR')}</td>
             <td><div style="display:flex;gap:6px">
@@ -1532,9 +1554,10 @@ async function baixarDocumento(i) {
   }
 }
 
-async function baixarTodosDocumentos(clienteId, pasta, subpasta) {
+async function baixarTodosDocumentos(clienteId, pasta, subpasta, idsSelecionados) {
   const filtro = subpasta ? `&subpasta=eq.${encodeURIComponent(subpasta)}` : `&mes=eq.${mesSel}&ano=eq.${anoSel}`;
-  const documentos = await api(`documentos?cliente_id=eq.${clienteId}&tipo=eq.${pasta}${filtro}&order=created_at`);
+  let documentos = await api(`documentos?cliente_id=eq.${clienteId}&tipo=eq.${pasta}${filtro}&order=created_at`);
+  if (idsSelecionados) documentos = documentos.filter(d => idsSelecionados.has(d.id));
   let baixados = 0;
   for (const d of documentos) {
     try {
@@ -1670,6 +1693,9 @@ async function enviarPastaWhats(clienteId, pathStr, subpasta) {
   const path = pathStr.split(',');
   const tipo = path[path.length-1];
   const info = pastaNode(path);
+  const totalArquivos = document.querySelectorAll('.check-arquivo').length;
+  const idsSelecionados = new Set(Array.from(document.querySelectorAll('.check-arquivo:checked')).map(el => el.dataset.id));
+  if (totalArquivos > 0 && idsSelecionados.size === 0) { toast('Marque pelo menos um arquivo para enviar!', 'error'); return; }
   const cl = (await api(`clientes?id=eq.${clienteId}&select=razao_social,telefone`))[0];
   const telefone = (cl.telefone||'').replace(/\D/g,'');
   if (!telefone) { toast('Este cliente não tem telefone cadastrado.', 'error'); return; }
@@ -1686,7 +1712,7 @@ async function enviarPastaWhats(clienteId, pathStr, subpasta) {
   }
   window.open(`whatsapp://send?phone=${numero}&text=${encodeURIComponent(mensagem)}`, '_blank');
   toast('Baixando os arquivos para você anexar...', 'success');
-  const qtd = await baixarTodosDocumentos(clienteId, tipo, subpasta);
+  const qtd = await baixarTodosDocumentos(clienteId, tipo, subpasta, idsSelecionados);
   if (qtd > 0) toast(`${qtd} arquivo(s) baixado(s)! Agora é só anexar no WhatsApp.`, 'success');
   else toast('Nenhum arquivo encontrado nesta pasta para baixar.', 'error');
 }

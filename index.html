@@ -290,13 +290,11 @@ async function pagDashboard() {
   const certsVencidos = certsAlerta.filter(cf => cf.vencido).length;
   const certsProximos = certsAlerta.length - certsVencidos;
   const c = document.getElementById('content');
-  const total = clientes.reduce((s,x)=>s+(x.honorario||0),0);
   c.innerHTML = `
     <div style="margin-bottom:24px"><div style="font-size:20px;font-weight:600;color:var(--navy);margin-bottom:4px">Bem-vinda, Natana! 👋</div><div style="font-size:13px;color:#9CA3AF">Seu sistema está funcionando! <span style="color:var(--gold);font-weight:500">Comece cadastrando seus clientes.</span></div></div>
-    <div class="grid-4">
+    <div class="grid-4" style="grid-template-columns:repeat(3, 1fr)">
       <div class="metric"><div class="metric-label">Clientes ativos</div><div class="metric-value">${clientes.length}</div></div>
       <div class="metric"><div class="metric-label">Demandas do mês</div><div class="metric-value">${totalDemandas}</div><div class="metric-sub">${meses[mesSel]}/${anoSel}</div></div>
-      <div class="metric"><div class="metric-label">Honorários mensais</div><div class="metric-value">${fmt(total)}</div></div>
       <div class="metric"><div class="metric-label">Sistema</div><div class="metric-value" style="font-size:14px;color:var(--success)">✅ Online</div></div>
     </div>
     <div class="grid-2">
@@ -434,6 +432,9 @@ async function pagClientes() {
             <div class="field"><label>Dia de vencimento</label><select id="c-venc"><option>5</option><option>10</option><option>15</option><option>20</option><option>25</option></select></div>
             <div class="field"><label>Forma de cobrança</label><select id="c-cobranca"><option>PIX</option><option>Boleto</option><option>Transferência</option></select></div>
             <div class="field"><label>Chave PIX</label><input id="c-pix" placeholder="CPF, e-mail ou chave"></div>
+            <div class="field"><label>Saldo devedor inicial (R$)</label><input type="number" id="c-saldo-inicial" placeholder="0,00"></div>
+          </div>
+          <div style="font-size:12px;color:#9CA3AF;margin-top:-8px;margin-bottom:12px">Use esse campo só se o cliente já tinha pendência de pagamento <strong>antes</strong> de começarmos a usar o Contas a Receber no sistema (antes de Julho/2026). É um valor lançado uma única vez — depois disso, o controle mês a mês do sistema assume sozinho.
           </div>
         </div>
         <div id="tab5" style="display:none">
@@ -558,6 +559,7 @@ function abrirModalCliente() {
   document.getElementById('modal-cliente-titulo').textContent = 'Novo cliente';
   ['c-razao','c-fantasia','c-cnpj','c-ie','c-im','c-abertura','c-inicio','c-responsavel','c-tel','c-email','c-pix','c-obs','c-cep','c-uf','c-logradouro','c-numero','c-complemento','c-bairro','c-municipio','c-cnae-codigo','c-cnae-descricao','c-cnaes-secundarios'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
   const hon = document.getElementById('c-honorario'); if(hon) hon.value='';
+  const saldoIni = document.getElementById('c-saldo-inicial'); if(saldoIni) saldoIni.value='';
   const cnpjStatus = document.getElementById('cnpj-status'); if(cnpjStatus) cnpjStatus.textContent='';
   document.getElementById('c-segmento').value = '';
   sociosTemp = [];
@@ -584,6 +586,7 @@ async function editarCliente(id) {
   document.getElementById('c-tel').value = cl.telefone||'';
   document.getElementById('c-email').value = cl.email||'';
   document.getElementById('c-honorario').value = cl.honorario||'';
+  document.getElementById('c-saldo-inicial').value = cl.saldo_devedor_inicial||'';
   document.getElementById('c-pix').value = cl.chave_pix||'';
   document.getElementById('c-obs').value = cl.observacoes||'';
   document.getElementById('c-regime').value = cl.regime||'Simples Nacional';
@@ -631,6 +634,7 @@ async function salvarCliente() {
     regime: document.getElementById('c-regime').value,
     segmento: document.getElementById('c-segmento').value,
     honorario: parseFloat(document.getElementById('c-honorario').value)||0,
+    saldo_devedor_inicial: parseFloat(document.getElementById('c-saldo-inicial').value)||0,
     dia_vencimento: parseInt(document.getElementById('c-venc').value)||5,
     forma_cobranca: document.getElementById('c-cobranca').value,
     chave_pix: document.getElementById('c-pix').value,
@@ -1418,8 +1422,8 @@ async function verArquivos(clienteId, pathStr) {
         <button class="btn btn-sm btn-success" onclick="enviarPastaWhats('${clienteId}','${pathStr}')"><i class="ti ti-brand-whatsapp"></i> Enviar pelo WhatsApp</button>
       </div>
       <div class="card-body">
-        <div class="field" style="margin-bottom:12px"><label>Arquivo</label><input type="file" id="doc-arquivo"></div>
-        <button class="btn btn-navy btn-sm" id="btn-upload-doc" onclick="uploadDocumento('${clienteId}','${pathStr}')"><i class="ti ti-upload"></i> Anexar arquivo</button>
+        <div class="field" style="margin-bottom:12px"><label>Arquivo(s)</label><input type="file" id="doc-arquivo" multiple></div>
+        <button class="btn btn-navy btn-sm" id="btn-upload-doc" onclick="uploadDocumento('${clienteId}','${pathStr}')"><i class="ti ti-upload"></i> Anexar arquivo(s)</button>
       </div>
       ${documentos.length > 0 ? `<div style="display:flex;gap:14px;padding:10px 16px;font-size:12px">
         <a href="#" onclick="document.querySelectorAll('.check-arquivo').forEach(c=>c.checked=true);return false;">Marcar todos</a>
@@ -1485,8 +1489,8 @@ async function verArquivosPastinha(clienteId, pathStr, subpasta) {
         <button class="btn btn-sm btn-success" onclick="enviarPastaWhats('${clienteId}','${pathStr}','${subpastaEsc}')"><i class="ti ti-brand-whatsapp"></i> Enviar pelo WhatsApp</button>
       </div>
       <div class="card-body">
-        <div class="field" style="margin-bottom:12px"><label>Arquivo</label><input type="file" id="doc-arquivo"></div>
-        <button class="btn btn-navy btn-sm" id="btn-upload-doc" onclick="uploadDocumento('${clienteId}','${pathStr}','${subpastaEsc}')"><i class="ti ti-upload"></i> Anexar arquivo</button>
+        <div class="field" style="margin-bottom:12px"><label>Arquivo(s)</label><input type="file" id="doc-arquivo" multiple></div>
+        <button class="btn btn-navy btn-sm" id="btn-upload-doc" onclick="uploadDocumento('${clienteId}','${pathStr}','${subpastaEsc}')"><i class="ti ti-upload"></i> Anexar arquivo(s)</button>
       </div>
       ${documentos.length > 0 ? `<div style="display:flex;gap:14px;padding:10px 16px;font-size:12px">
         <a href="#" onclick="document.querySelectorAll('.check-arquivo').forEach(c=>c.checked=true);return false;">Marcar todos</a>
@@ -1514,26 +1518,32 @@ async function uploadDocumento(clienteId, pathStr, subpasta) {
   const path = pathStr.split(',');
   const tipo = path[path.length-1];
   const fileInput = document.getElementById('doc-arquivo');
-  const file = fileInput.files[0];
-  if (!file) { toast('Escolha um arquivo!', 'error'); return; }
+  const files = Array.from(fileInput.files);
+  if (files.length === 0) { toast('Escolha ao menos um arquivo!', 'error'); return; }
   const btn = document.getElementById('btn-upload-doc');
   const textoOriginal = btn.innerHTML;
-  btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader"></i> Enviando...';
+  btn.disabled = true;
+  let sucesso = 0;
   try {
-    const pastaStorage = subpasta ? `${tipo}/${sanitizarNomeArquivo(subpasta)}` : `${tipo}/${anoSel}-${String(mesSel+1).padStart(2,'0')}`;
-    const storagePath = `${clienteId}/${pastaStorage}/${Date.now()}-${sanitizarNomeArquivo(file.name)}`;
-    const r = await storageFetch(`/object/documentos/${storagePath}`, {
-      method: 'POST',
-      headers: { 'Content-Type': file.type || 'application/octet-stream' },
-      body: file
-    });
-    if (!r.ok) throw new Error('falha no upload');
-    await api('documentos', 'POST', { cliente_id: clienteId, mes: mesSel, ano: anoSel, nome_arquivo: file.name, tipo, subpasta: subpasta || null, storage_path: storagePath });
-    toast('Arquivo anexado!', 'success');
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      btn.innerHTML = `<i class="ti ti-loader"></i> Enviando ${i+1}/${files.length}...`;
+      try {
+        const pastaStorage = subpasta ? `${tipo}/${sanitizarNomeArquivo(subpasta)}` : `${tipo}/${anoSel}-${String(mesSel+1).padStart(2,'0')}`;
+        const storagePath = `${clienteId}/${pastaStorage}/${Date.now()}-${i}-${sanitizarNomeArquivo(file.name)}`;
+        const r = await storageFetch(`/object/documentos/${storagePath}`, {
+          method: 'POST',
+          headers: { 'Content-Type': file.type || 'application/octet-stream' },
+          body: file
+        });
+        if (!r.ok) throw new Error('falha no upload');
+        await api('documentos', 'POST', { cliente_id: clienteId, mes: mesSel, ano: anoSel, nome_arquivo: file.name, tipo, subpasta: subpasta || null, storage_path: storagePath });
+        sucesso++;
+      } catch (e) { /* segue para o próximo arquivo */ }
+    }
+    toast(`${sucesso} de ${files.length} arquivo(s) anexado(s)!`, sucesso === files.length ? 'success' : 'error');
     if (subpasta) await verArquivosPastinha(clienteId, pathStr, subpasta);
     else await verArquivos(clienteId, pathStr);
-  } catch (e) {
-    toast('Erro ao anexar arquivo. Tente novamente.', 'error');
   } finally {
     btn.disabled = false; btn.innerHTML = textoOriginal;
   }
@@ -1924,11 +1934,42 @@ async function enviarAlertaCertificado(clienteId) {
 }
 
 // FINANCEIRO - RECEBER
+// A partir de qual mês o sistema começa a contar saldo devedor acumulado.
+// Ajuste aqui se precisar mudar o ponto de partida (ex: se quiser voltar mais no tempo).
+const RECEBER_INICIO_MES = 6; // 6 = Julho (Janeiro=0)
+const RECEBER_INICIO_ANO = 2026;
 let clientesReceberTodos = [];
 let pagamentosReceberTodos = [];
+let pagamentosReceberHistorico = [];
+let saldoDevedorMap = {};
 
-function statusHonorario(cl, recebido) {
-  if (recebido >= (cl.honorario||0)) return { label: 'Quitado', badge: 'badge-success' };
+function mesAnoIdx(mes, ano) { return ano*12+mes; }
+
+function calcularSaldoDevedor(cl) {
+  const honorario = cl.honorario || 0;
+  let saldo = cl.saldo_devedor_inicial || 0;
+  if (honorario <= 0) return saldo;
+  let inicioIdx = mesAnoIdx(RECEBER_INICIO_MES, RECEBER_INICIO_ANO);
+  if (cl.data_inicio) {
+    const d = new Date(cl.data_inicio + 'T00:00:00');
+    const idxCliente = mesAnoIdx(d.getMonth(), d.getFullYear());
+    if (idxCliente > inicioIdx) inicioIdx = idxCliente;
+  }
+  const fimIdx = mesAnoIdx(mesSel, anoSel);
+  for (let idx = inicioIdx; idx < fimIdx; idx++) {
+    const mes = idx % 12, ano = Math.floor(idx/12);
+    const pag = pagamentosReceberHistorico.find(p => p.cliente_id === cl.id && p.mes === mes && p.ano === ano);
+    const recebido = pag?.valor_recebido || 0;
+    saldo += Math.max(0, honorario - recebido);
+  }
+  return saldo;
+}
+
+function statusHonorario(cl, recebido, saldoDevedor) {
+  const saldoEmAberto = (cl.honorario||0) + (saldoDevedor||0);
+  const saldoFinal = Math.max(0, saldoEmAberto - recebido);
+  if (saldoFinal <= 0) return { label: 'Quitado', badge: 'badge-success' };
+  if (saldoDevedor > 0) return { label: 'Inadimplente', badge: 'badge-danger' };
   const hoje = new Date(); hoje.setHours(0,0,0,0);
   const anoAtual = hoje.getFullYear(), mesAtual = hoje.getMonth();
   let vencido;
@@ -1942,18 +1983,22 @@ function renderLinhasReceber(lista) {
   const rows = lista.map(cl => {
     const pag = pagamentosReceberTodos.find(p => p.cliente_id === cl.id);
     const recebido = pag?.valor_recebido || 0;
-    const aberto = (cl.honorario||0) - recebido;
-    const status = statusHonorario(cl, recebido);
+    const saldoDevedor = saldoDevedorMap[cl.id] || 0;
+    const saldoEmAberto = (cl.honorario||0) + saldoDevedor;
+    const saldoFinal = Math.max(0, saldoEmAberto - recebido);
+    const status = statusHonorario(cl, recebido, saldoDevedor);
     return `<tr>
       <td style="font-weight:500">${cl.razao_social}${pag ? `<br><span style="font-size:11px;color:#9CA3AF">Recebido em ${pag.data_recebimento||'—'}</span>` : ''}</td>
       <td>${fmt(cl.honorario)}</td>
+      <td>${saldoDevedor > 0 ? `<span style="color:var(--danger);font-weight:500">${fmt(saldoDevedor)}</span>` : fmt(0)}</td>
+      <td>${fmt(saldoEmAberto)}</td>
       <td>${fmt(recebido)}</td>
-      <td>${aberto > 0 ? `<span style="color:var(--danger);font-weight:500">${fmt(aberto)}</span>` : '<span style="color:var(--success)">Quitado</span>'}</td>
+      <td>${saldoFinal > 0 ? `<span style="color:var(--danger);font-weight:500">${fmt(saldoFinal)}</span>` : '<span style="color:var(--success)">Quitado</span>'}</td>
       <td><span class="badge ${status.badge}">${status.label}</span></td>
-      <td>${status.label !== 'Quitado' ? `<button class="btn btn-sm btn-navy" onclick="abrirBaixaHon('${cl.id}','${cl.razao_social}',${cl.honorario},${recebido})"><i class="ti ti-cash"></i> Baixa</button>` : '✅'}</td>
+      <td>${status.label !== 'Quitado' ? `<button class="btn btn-sm btn-navy" onclick="abrirBaixaHon('${cl.id}','${cl.razao_social}',${cl.honorario},${recebido},${saldoDevedor})"><i class="ti ti-cash"></i> Baixa</button>` : '✅'}</td>
     </tr>`;
   }).join('');
-  return rows || '<tr><td colspan="6" style="text-align:center;padding:24px;color:#9CA3AF">Nenhum cliente encontrado.</td></tr>';
+  return rows || '<tr><td colspan="8" style="text-align:center;padding:24px;color:#9CA3AF">Nenhum cliente encontrado.</td></tr>';
 }
 
 function filtrarReceber() {
@@ -1971,12 +2016,21 @@ function filtrarReceber() {
 async function pagReceber() {
   clientesReceberTodos = await api('clientes?status=eq.Ativo&select=*&order=razao_social');
   pagamentosReceberTodos = await api(`honorarios_pagamentos?mes=eq.${mesSel}&ano=eq.${anoSel}`);
+  pagamentosReceberHistorico = await api('honorarios_pagamentos?select=cliente_id,mes,ano,valor_recebido');
+  saldoDevedorMap = {};
+  clientesReceberTodos.forEach(cl => { saldoDevedorMap[cl.id] = calcularSaldoDevedor(cl); });
+
   const c = document.getElementById('content');
-  let totalReceber = 0, totalRecebido = 0;
+  let totalHonorarios = 0, totalSaldoDevedor = 0, totalRecebido = 0, totalSaldoFinal = 0;
   clientesReceberTodos.forEach(cl => {
     const pag = pagamentosReceberTodos.find(p => p.cliente_id === cl.id);
-    totalReceber += (cl.honorario||0);
-    totalRecebido += pag?.valor_recebido || 0;
+    const recebido = pag?.valor_recebido || 0;
+    const saldoDevedor = saldoDevedorMap[cl.id] || 0;
+    const saldoEmAberto = (cl.honorario||0) + saldoDevedor;
+    totalHonorarios += (cl.honorario||0);
+    totalSaldoDevedor += saldoDevedor;
+    totalRecebido += recebido;
+    totalSaldoFinal += Math.max(0, saldoEmAberto - recebido);
   });
 
   c.innerHTML = `
@@ -1990,10 +2044,10 @@ async function pagReceber() {
       </div>
     </div>
     <div class="grid-4">
-      <div class="metric"><div class="metric-label">Total a receber</div><div class="metric-value">${fmt(totalReceber)}</div></div>
+      <div class="metric"><div class="metric-label">Total a receber</div><div class="metric-value">${fmt(totalHonorarios+totalSaldoDevedor)}</div></div>
       <div class="metric"><div class="metric-label">Recebido</div><div class="metric-value" style="color:var(--success)">${fmt(totalRecebido)}</div></div>
-      <div class="metric"><div class="metric-label">Em aberto</div><div class="metric-value" style="color:var(--danger)">${fmt(totalReceber-totalRecebido)}</div></div>
-      <div class="metric"><div class="metric-label">Inadimplentes</div><div class="metric-value" style="color:var(--danger)">${clientesReceberTodos.filter(cl=>statusHonorario(cl, pagamentosReceberTodos.find(p=>p.cliente_id===cl.id)?.valor_recebido||0).label==='Inadimplente').length}</div></div>
+      <div class="metric"><div class="metric-label">Em aberto</div><div class="metric-value" style="color:var(--danger)">${fmt(totalSaldoFinal)}</div></div>
+      <div class="metric"><div class="metric-label">Inadimplentes</div><div class="metric-value" style="color:var(--danger)">${clientesReceberTodos.filter(cl=>statusHonorario(cl, pagamentosReceberTodos.find(p=>p.cliente_id===cl.id)?.valor_recebido||0, saldoDevedorMap[cl.id]||0).label==='Inadimplente').length}</div></div>
     </div>
     <div class="field" style="max-width:360px;margin-bottom:16px">
       <div style="position:relative">
@@ -2003,7 +2057,7 @@ async function pagReceber() {
     </div>
     <div class="card">
       <table class="table">
-        <thead><tr><th>Cliente</th><th>Honorário</th><th>Recebido</th><th>Saldo aberto</th><th>Status</th><th>Ação</th></tr></thead>
+        <thead><tr><th>Cliente</th><th>Honorário</th><th>Saldo Devedor</th><th>Saldo em Aberto</th><th>Recebido</th><th>Saldo Final</th><th>Status</th><th>Ação</th></tr></thead>
         <tbody id="tb-receber">${renderLinhasReceber(clientesReceberTodos)}</tbody>
       </table>
     </div>
@@ -2022,9 +2076,10 @@ async function pagReceber() {
     </div>`;
 }
 
-function abrirBaixaHon(clienteId, nome, honorario, recebido) {
+function abrirBaixaHon(clienteId, nome, honorario, recebido, saldoDevedor) {
+  const saldoEmAberto = honorario + (saldoDevedor||0);
   document.getElementById('baixa-hon-titulo').textContent = 'Dar baixa — ' + nome;
-  document.getElementById('baixa-hon-sub').textContent = `Honorário: ${fmt(honorario)} · Já recebido: ${fmt(recebido)}`;
+  document.getElementById('baixa-hon-sub').textContent = `Honorário do mês: ${fmt(honorario)}${saldoDevedor>0?` · Saldo devedor anterior: ${fmt(saldoDevedor)}`:''} · Saldo em aberto: ${fmt(saldoEmAberto)} · Já recebido: ${fmt(recebido)}`;
   document.getElementById('baixa-cliente-id').value = clienteId;
   document.getElementById('baixa-valor').value = '';
   document.getElementById('ov-baixa-hon').classList.add('show');

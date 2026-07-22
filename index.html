@@ -2026,6 +2026,7 @@ let filtroReceberAtivo = 'todos';
 
 function receberPassaFiltro(cl) {
   if (filtroReceberAtivo === 'todos') return true;
+  if (filtroReceberAtivo === 'zerado') return (cl.honorario||0) === 0;
   const pag = pagamentosReceberTodos.find(p => p.cliente_id === cl.id);
   const recebido = pag?.valor_recebido || 0;
   const saldoDevedor = saldoDevedorMap[cl.id] || 0;
@@ -2066,6 +2067,7 @@ async function pagReceber() {
   const c = document.getElementById('content');
   let totalHonorarios = 0, totalSaldoDevedor = 0, totalRecebido = 0, totalSaldoFinal = 0;
   let countQuitado = 0, countAvencer = 0, countInadimplente = 0;
+  const countZerado = clientesReceberTodos.filter(cl => (cl.honorario||0) === 0).length;
   if (mesAntesDoRastreamento()) {
     countQuitado = clientesReceberTodos.length;
   } else {
@@ -2106,6 +2108,7 @@ async function pagReceber() {
       <button class="btn btn-sm filtro-receber-btn" id="filtro-receber-quitado" onclick="definirFiltroReceber('quitado')">Quitado (${countQuitado})</button>
       <button class="btn btn-sm filtro-receber-btn" id="filtro-receber-avencer" onclick="definirFiltroReceber('avencer')">A vencer (${countAvencer})</button>
       <button class="btn btn-sm filtro-receber-btn" id="filtro-receber-inadimplente" onclick="definirFiltroReceber('inadimplente')">Inadimplente (${countInadimplente})</button>
+      <button class="btn btn-sm filtro-receber-btn" id="filtro-receber-zerado" onclick="definirFiltroReceber('zerado')">Honorário zerado (${countZerado})</button>
     </div>
     <div class="field" style="max-width:360px;margin-bottom:16px">
       <div style="position:relative">

@@ -1965,7 +1965,12 @@ function calcularSaldoDevedor(cl) {
   return saldo;
 }
 
+function mesAntesDoRastreamento() {
+  return mesAnoIdx(mesSel, anoSel) < mesAnoIdx(RECEBER_INICIO_MES, RECEBER_INICIO_ANO);
+}
+
 function statusHonorario(cl, recebido, saldoDevedor) {
+  if (mesAntesDoRastreamento()) return { label: 'Quitado', badge: 'badge-success' };
   const saldoEmAberto = (cl.honorario||0) + (saldoDevedor||0);
   const saldoFinal = Math.max(0, saldoEmAberto - recebido);
   if (saldoFinal <= 0) return { label: 'Quitado', badge: 'badge-success' };
@@ -1980,7 +1985,20 @@ function statusHonorario(cl, recebido, saldoDevedor) {
 }
 
 function renderLinhasReceber(lista) {
+  const antesDoRastreamento = mesAntesDoRastreamento();
   const rows = lista.map(cl => {
+    if (antesDoRastreamento) {
+      return `<tr>
+        <td style="font-weight:500">${cl.razao_social}</td>
+        <td>${fmt(cl.honorario)}</td>
+        <td>${fmt(0)}</td>
+        <td>${fmt(0)}</td>
+        <td>${fmt(0)}</td>
+        <td><span style="color:var(--success)">Quitado</span></td>
+        <td><span class="badge badge-success">Quitado</span></td>
+        <td>✅</td>
+      </tr>`;
+    }
     const pag = pagamentosReceberTodos.find(p => p.cliente_id === cl.id);
     const recebido = pag?.valor_recebido || 0;
     const saldoDevedor = saldoDevedorMap[cl.id] || 0;
@@ -2001,6 +2019,27 @@ function renderLinhasReceber(lista) {
   return rows || '<tr><td colspan="8" style="text-align:center;padding:24px;color:#9CA3AF">Nenhum cliente encontrado.</td></tr>';
 }
 
+let filtroReceberAtivo = 'todos';
+
+function receberPassaFiltro(cl) {
+  if (filtroReceberAtivo === 'todos') return true;
+  const pag = pagamentosReceberTodos.find(p => p.cliente_id === cl.id);
+  const recebido = pag?.valor_recebido || 0;
+  const saldoDevedor = saldoDevedorMap[cl.id] || 0;
+  const status = statusHonorario(cl, recebido, saldoDevedor).label;
+  if (filtroReceberAtivo === 'quitado') return status === 'Quitado';
+  if (filtroReceberAtivo === 'avencer') return status === 'A vencer';
+  if (filtroReceberAtivo === 'inadimplente') return status === 'Inadimplente';
+  return true;
+}
+
+function definirFiltroReceber(f) {
+  filtroReceberAtivo = f;
+  document.querySelectorAll('.filtro-receber-btn').forEach(b => b.classList.remove('btn-navy'));
+  document.getElementById('filtro-receber-'+f).classList.add('btn-navy');
+  filtrarReceber();
+}
+
 function filtrarReceber() {
   const termo = document.getElementById('busca-receber').value.trim().toLowerCase();
   const termoDigitos = termo.replace(/\D/g,'');
@@ -2008,7 +2047,7 @@ function filtrarReceber() {
     const nomeBate = (cl.razao_social||'').toLowerCase().includes(termo);
     const cnpjDigitos = (cl.cnpj||'').replace(/\D/g,'');
     const cnpjBate = termoDigitos && cnpjDigitos.includes(termoDigitos);
-    return nomeBate || cnpjBate;
+    return (nomeBate || cnpjBate) && receberPassaFiltro(cl);
   });
   document.getElementById('tb-receber').innerHTML = renderLinhasReceber(filtrados);
 }
@@ -2019,19 +2058,29 @@ async function pagReceber() {
   pagamentosReceberHistorico = await api('honorarios_pagamentos?select=cliente_id,mes,ano,valor_recebido');
   saldoDevedorMap = {};
   clientesReceberTodos.forEach(cl => { saldoDevedorMap[cl.id] = calcularSaldoDevedor(cl); });
+  filtroReceberAtivo = 'todos';
 
   const c = document.getElementById('content');
   let totalHonorarios = 0, totalSaldoDevedor = 0, totalRecebido = 0, totalSaldoFinal = 0;
-  clientesReceberTodos.forEach(cl => {
-    const pag = pagamentosReceberTodos.find(p => p.cliente_id === cl.id);
-    const recebido = pag?.valor_recebido || 0;
-    const saldoDevedor = saldoDevedorMap[cl.id] || 0;
-    const saldoEmAberto = (cl.honorario||0) + saldoDevedor;
-    totalHonorarios += (cl.honorario||0);
-    totalSaldoDevedor += saldoDevedor;
-    totalRecebido += recebido;
-    totalSaldoFinal += Math.max(0, saldoEmAberto - recebido);
-  });
+  let countQuitado = 0, countAvencer = 0, countInadimplente = 0;
+  if (mesAntesDoRastreamento()) {
+    countQuitado = clientesReceberTodos.length;
+  } else {
+    clientesReceberTodos.forEach(cl => {
+      const pag = pagamentosReceberTodos.find(p => p.cliente_id === cl.id);
+      const recebido = pag?.valor_recebido || 0;
+      const saldoDevedor = saldoDevedorMap[cl.id] || 0;
+      const saldoEmAberto = (cl.honorario||0) + saldoDevedor;
+      totalHonorarios += (cl.honorario||0);
+      totalSaldoDevedor += saldoDevedor;
+      totalRecebido += recebido;
+      totalSaldoFinal += Math.max(0, saldoEmAberto - recebido);
+      const statusLabel = statusHonorario(cl, recebido, saldoDevedor).label;
+      if (statusLabel === 'Quitado') countQuitado++;
+      else if (statusLabel === 'A vencer') countAvencer++;
+      else if (statusLabel === 'Inadimplente') countInadimplente++;
+    });
+  }
 
   c.innerHTML = `
     <div class="page-header">
@@ -2047,7 +2096,13 @@ async function pagReceber() {
       <div class="metric"><div class="metric-label">Total a receber</div><div class="metric-value">${fmt(totalHonorarios+totalSaldoDevedor)}</div></div>
       <div class="metric"><div class="metric-label">Recebido</div><div class="metric-value" style="color:var(--success)">${fmt(totalRecebido)}</div></div>
       <div class="metric"><div class="metric-label">Em aberto</div><div class="metric-value" style="color:var(--danger)">${fmt(totalSaldoFinal)}</div></div>
-      <div class="metric"><div class="metric-label">Inadimplentes</div><div class="metric-value" style="color:var(--danger)">${clientesReceberTodos.filter(cl=>statusHonorario(cl, pagamentosReceberTodos.find(p=>p.cliente_id===cl.id)?.valor_recebido||0, saldoDevedorMap[cl.id]||0).label==='Inadimplente').length}</div></div>
+      <div class="metric"><div class="metric-label">Inadimplentes</div><div class="metric-value" style="color:var(--danger)">${countInadimplente}</div></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+      <button class="btn btn-sm filtro-receber-btn btn-navy" id="filtro-receber-todos" onclick="definirFiltroReceber('todos')">Todos (${clientesReceberTodos.length})</button>
+      <button class="btn btn-sm filtro-receber-btn" id="filtro-receber-quitado" onclick="definirFiltroReceber('quitado')">Quitado (${countQuitado})</button>
+      <button class="btn btn-sm filtro-receber-btn" id="filtro-receber-avencer" onclick="definirFiltroReceber('avencer')">A vencer (${countAvencer})</button>
+      <button class="btn btn-sm filtro-receber-btn" id="filtro-receber-inadimplente" onclick="definirFiltroReceber('inadimplente')">Inadimplente (${countInadimplente})</button>
     </div>
     <div class="field" style="max-width:360px;margin-bottom:16px">
       <div style="position:relative">

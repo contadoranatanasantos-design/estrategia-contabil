@@ -832,11 +832,14 @@ async function renderDemandasPorObrigacao() {
     return;
   }
   body.innerHTML = `
-    <div class="field" style="max-width:360px;margin-bottom:16px">
-      <div style="position:relative">
-        <i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#9CA3AF"></i>
-        <input id="busca-obrigacao" placeholder="Buscar obrigação..." oninput="filtrarObrigacoesDemandas()" style="height:38px;padding:0 10px 0 34px;border-radius:8px;border:1.5px solid #E5E7EB;font-size:13px;width:100%">
+    <div style="display:flex;gap:12px;margin-bottom:16px;align-items:flex-start">
+      <div class="field" style="max-width:360px;flex:1">
+        <div style="position:relative">
+          <i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#9CA3AF"></i>
+          <input id="busca-obrigacao" placeholder="Buscar obrigação..." oninput="filtrarObrigacoesDemandas()" style="height:38px;padding:0 10px 0 34px;border-radius:8px;border:1.5px solid #E5E7EB;font-size:13px;width:100%">
+        </div>
       </div>
+      <button class="btn btn-navy" style="height:38px" onclick="abrirModalObrig()"><i class="ti ti-plus"></i> Nova Tarefa</button>
     </div>
     <div id="lista-obrigacoes-demandas">${renderCardsObrigacoesDemandas(obrigacoesTodasDemandas)}</div>
     ${modalObrigHTML()}`;

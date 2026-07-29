@@ -131,6 +131,7 @@
       <div class="nav-item" onclick="ir('demandas',this)"><i class="ti ti-checkbox"></i> Gestão de Tarefas</div>
       <div class="nav-item" onclick="ir('empresas',this)"><i class="ti ti-building"></i> Controle Empresas</div>
       <div class="nav-item" onclick="ir('certificados',this)"><i class="ti ti-certificate"></i> Certificado Digital</div>
+      <div class="nav-item" onclick="ir('processos',this)"><i class="ti ti-list-check"></i> Processos</div>
       <div class="nav-section">Financeiro</div>
       <div class="nav-item" onclick="ir('receber',this)"><i class="ti ti-trending-up"></i> Contas a receber</div>
       <div class="nav-item" onclick="ir('pagar',this)"><i class="ti ti-trending-down"></i> Contas a pagar</div>
@@ -261,7 +262,7 @@ document.getElementById('login-btn').onclick = login;
 document.getElementById('login-senha').onkeydown = e => { if(e.key==='Enter') login(); };
 
 // NAVEGAÇÃO
-const titulos = { dashboard:'Dashboard', clientes:'Carteira de Clientes', demandas:'Gestão de Tarefas', empresas:'Controle Empresas', certificados:'Certificado Digital', receber:'Contas a receber', pagar:'Contas a pagar', relatorios:'Relatórios', configuracoes:'Configurações' };
+const titulos = { dashboard:'Dashboard', clientes:'Carteira de Clientes', demandas:'Gestão de Tarefas', empresas:'Controle Empresas', certificados:'Certificado Digital', processos:'Processos', receber:'Contas a receber', pagar:'Contas a pagar', relatorios:'Relatórios', configuracoes:'Configurações' };
 function ir(pag, el) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   if (el) el.classList.add('active');
@@ -269,7 +270,7 @@ function ir(pag, el) {
   document.getElementById('page-title').textContent = titulos[pag] || pag;
   const c = document.getElementById('content');
   c.innerHTML = '<div style="text-align:center;padding:40px;color:#9CA3AF"><i class="ti ti-loader" style="font-size:32px"></i><br>Carregando...</div>';
-  setTimeout(() => { if(pag==='dashboard') pagDashboard(); else if(pag==='clientes') pagClientes(); else if(pag==='demandas') pagDemandas(); else if(pag==='empresas') pagEmpresas(); else if(pag==='certificados') pagCertificados(); else if(pag==='receber') pagReceber(); else if(pag==='pagar') pagPagar(); else if(pag==='relatorios') pagRelatorios(); else if(pag==='configuracoes') pagConfig(); }, 200);
+  setTimeout(() => { if(pag==='dashboard') pagDashboard(); else if(pag==='clientes') pagClientes(); else if(pag==='demandas') pagDemandas(); else if(pag==='empresas') pagEmpresas(); else if(pag==='certificados') pagCertificados(); else if(pag==='processos') pagProcessos(); else if(pag==='receber') pagReceber(); else if(pag==='pagar') pagPagar(); else if(pag==='relatorios') pagRelatorios(); else if(pag==='configuracoes') pagConfig(); }, 200);
 }
 
 function toast(msg, tipo='') { const t=document.getElementById('toast'); t.textContent=msg; t.className=`toast show ${tipo}`; setTimeout(()=>t.className='toast',3000); }
@@ -2322,6 +2323,209 @@ async function pagarDespesa(id, nome) {
   await api('despesas_pagamentos','POST',{ despesa_id: id, mes: mesSel, ano: anoSel, data_pagamento: data });
   toast(`${nome} marcada como paga!`,'success');
   pagPagar();
+}
+
+// PROCESSOS
+const DEPARTAMENTOS_PROCESSO = {
+  fiscal: { label: 'DEP FISCAL', icone: 'ti-receipt' },
+  pessoal: { label: 'DEP PESSOAL', icone: 'ti-users' },
+  contabil: { label: 'DEP CONTABIL', icone: 'ti-calculator' },
+  societario: { label: 'SOCIETARIO', icone: 'ti-building-bank' }
+};
+let processosTodos = [];
+let departamentoAtualProcessos = '';
+
+async function pagProcessos() {
+  const todos = await api('processos?select=departamento');
+  const contagem = {};
+  todos.forEach(p => { contagem[p.departamento] = (contagem[p.departamento]||0)+1; });
+  const c = document.getElementById('content');
+  c.innerHTML = `
+    <div class="page-header"><div class="page-header-title">Processos</div></div>
+    <div style="font-size:13px;color:#4B5563;margin-bottom:16px">Guarde aqui o passo a passo de cada tarefa do escritório, organizado por departamento — útil pra treinar a equipe sem depender só da sua memória.</div>
+    ${Object.entries(DEPARTAMENTOS_PROCESSO).map(([key, dep]) => `
+      <div class="card" style="cursor:pointer" onclick="verDepartamentoProcessos('${key}')">
+        <div class="card-header">
+          <div style="display:flex;align-items:center;gap:10px">
+            <div style="width:36px;height:36px;border-radius:8px;background:#EEF2FF;display:flex;align-items:center;justify-content:center"><i class="ti ${dep.icone}" style="color:var(--navy)"></i></div>
+            <div style="font-weight:600;color:var(--navy)">${dep.label}</div>
+          </div>
+          <div style="font-size:13px;color:#9CA3AF">${contagem[key]||0} processo(s) →</div>
+        </div>
+      </div>`).join('')}`;
+}
+
+async function verDepartamentoProcessos(departamento) {
+  departamentoAtualProcessos = departamento;
+  processosTodos = await api(`processos?departamento=eq.${departamento}&order=nome`);
+  const dep = DEPARTAMENTOS_PROCESSO[departamento];
+  const c = document.getElementById('content');
+  c.innerHTML = `
+    <div class="page-header">
+      <button class="btn" onclick="pagProcessos()"><i class="ti ti-arrow-left"></i> Voltar</button>
+    </div>
+    <div class="page-header-title" style="margin-bottom:16px">${dep.label} — Processos</div>
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-body" style="display:flex;gap:8px">
+        <input id="novo-processo-nome" placeholder="Nome do novo processo (ex: Fechamento Prólabore)" style="flex:1;height:38px;padding:0 10px;border-radius:8px;border:1.5px solid #E5E7EB;font-size:13px">
+        <button class="btn btn-navy" onclick="criarProcesso('${departamento}')"><i class="ti ti-plus"></i> Criar processo</button>
+      </div>
+    </div>
+    <div class="field" style="max-width:360px;margin-bottom:16px">
+      <div style="position:relative">
+        <i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#9CA3AF"></i>
+        <input id="busca-processo" placeholder="Buscar processo..." oninput="filtrarProcessos()" style="height:38px;padding:0 10px 0 34px;border-radius:8px;border:1.5px solid #E5E7EB;font-size:13px;width:100%">
+      </div>
+    </div>
+    <div id="lista-processos">${renderCardsProcessos(processosTodos)}</div>`;
+}
+
+function renderCardsProcessos(lista) {
+  if (lista.length === 0) return '<div class="empty-state"><i class="ti ti-list-check"></i>Nenhum processo criado ainda nesse departamento.</div>';
+  return lista.map(p => `
+    <div class="card" style="cursor:pointer" onclick="verProcesso('${p.id}')">
+      <div class="card-header">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="width:36px;height:36px;border-radius:8px;background:#EEF2FF;display:flex;align-items:center;justify-content:center"><i class="ti ti-list-check" style="color:var(--navy)"></i></div>
+          <div style="font-weight:600;color:var(--navy)">${p.nome}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="font-size:13px;color:#9CA3AF">Abrir →</div>
+          <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();excluirProcesso('${p.id}','${p.nome.replace(/'/g,"\\'")}','${departamentoAtualProcessos}')"><i class="ti ti-trash"></i></button>
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+function filtrarProcessos() {
+  const termo = document.getElementById('busca-processo').value.trim().toLowerCase();
+  const filtrados = processosTodos.filter(p => (p.nome||'').toLowerCase().includes(termo));
+  document.getElementById('lista-processos').innerHTML = renderCardsProcessos(filtrados);
+}
+
+async function criarProcesso(departamento) {
+  const nome = document.getElementById('novo-processo-nome').value.trim();
+  if (!nome) { toast('Digite o nome do processo!', 'error'); return; }
+  const novo = await api('processos', 'POST', { nome, departamento });
+  toast('Processo criado!', 'success');
+  verProcesso(novo[0].id);
+}
+
+async function excluirProcesso(id, nome, departamento) {
+  if (!confirm(`Excluir o processo "${nome}"? Isso também apaga todos os passos dele.`)) return;
+  const passos = await api(`processo_passos?processo_id=eq.${id}&select=storage_path`);
+  for (const p of passos) {
+    if (p.storage_path) await storageFetch(`/object/processos/${p.storage_path}`, { method: 'DELETE' });
+  }
+  await api(`processos?id=eq.${id}`, 'DELETE');
+  toast('Processo excluído!', 'success');
+  verDepartamentoProcessos(departamento);
+}
+
+async function verProcesso(processoId) {
+  const processo = (await api(`processos?id=eq.${processoId}`))[0];
+  const passos = await api(`processo_passos?processo_id=eq.${processoId}&order=ordem`);
+  const imagensUrls = {};
+  for (const passo of passos) {
+    if (passo.storage_path) {
+      try {
+        const r = await storageFetch(`/object/sign/processos/${passo.storage_path}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({expiresIn:3600}) });
+        const data = await r.json();
+        if (data.signedURL) imagensUrls[passo.id] = SB_URL + '/storage/v1' + data.signedURL;
+      } catch(e) {}
+    }
+  }
+  window._processoAtual = processo;
+  window._passosAtuais = passos;
+  const dep = DEPARTAMENTOS_PROCESSO[processo.departamento];
+  const c = document.getElementById('content');
+  c.innerHTML = `
+    <div class="page-header no-print">
+      <button class="btn" onclick="verDepartamentoProcessos('${processo.departamento}')"><i class="ti ti-arrow-left"></i> Voltar</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-sm" onclick="window.print()"><i class="ti ti-printer"></i> Imprimir</button>
+        <button class="btn btn-sm btn-danger" onclick="excluirProcesso('${processo.id}','${processo.nome.replace(/'/g,"\\'")}','${processo.departamento}')"><i class="ti ti-trash"></i> Excluir processo</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div style="font-weight:600;color:var(--navy);font-size:18px">${processo.nome}</div>
+          <div style="font-size:13px;color:#9CA3AF">${dep?.label||''}</div>
+        </div>
+      </div>
+      <div class="card-body" id="lista-passos-processo">
+        ${passos.length === 0 ? '<div class="empty-state"><i class="ti ti-list-check"></i>Nenhum passo cadastrado ainda.</div>' :
+        passos.map((passo, i) => `
+          <div style="display:flex;gap:14px;padding:16px 0;border-bottom:1px solid var(--border)">
+            <div style="width:32px;height:32px;border-radius:50%;background:var(--navy);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:14px;flex-shrink:0">${i+1}</div>
+            <div style="flex:1">
+              <textarea id="passo-texto-${passo.id}" style="width:100%;min-height:60px;padding:8px;border-radius:8px;border:1.5px solid #E5E7EB;font-size:13px;font-family:inherit" placeholder="Descreva esse passo...">${passo.texto||''}</textarea>
+              ${imagensUrls[passo.id] ? `<img src="${imagensUrls[passo.id]}" style="max-width:100%;max-height:300px;border-radius:8px;margin-top:8px;border:1px solid var(--border)">` : ''}
+              <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap" class="no-print">
+                <button class="btn btn-sm" onclick="salvarTextoPasso('${passo.id}')"><i class="ti ti-device-floppy"></i> Salvar texto</button>
+                <input type="file" id="passo-imagem-${passo.id}" accept="image/*" style="display:none" onchange="anexarImagemPasso('${passo.id}','${processoId}')">
+                <button class="btn btn-sm" onclick="document.getElementById('passo-imagem-${passo.id}').click()"><i class="ti ti-photo"></i> ${imagensUrls[passo.id]?'Trocar imagem':'Anexar imagem'}</button>
+                ${i > 0 ? `<button class="btn btn-sm" onclick="moverPasso('${processoId}',${i},-1)"><i class="ti ti-arrow-up"></i></button>` : ''}
+                ${i < passos.length-1 ? `<button class="btn btn-sm" onclick="moverPasso('${processoId}',${i},1)"><i class="ti ti-arrow-down"></i></button>` : ''}
+                <button class="btn btn-sm btn-danger" onclick="removerPasso('${passo.id}','${processoId}')"><i class="ti ti-trash"></i></button>
+              </div>
+            </div>
+          </div>`).join('')}
+      </div>
+      <div class="card-body no-print" style="border-top:1px solid var(--border)">
+        <button class="btn btn-navy" onclick="adicionarPasso('${processoId}')"><i class="ti ti-plus"></i> Adicionar passo</button>
+      </div>
+    </div>`;
+}
+
+async function adicionarPasso(processoId) {
+  const passos = window._passosAtuais || [];
+  const proximaOrdem = passos.length > 0 ? Math.max(...passos.map(p=>p.ordem)) + 1 : 0;
+  await api('processo_passos', 'POST', { processo_id: processoId, ordem: proximaOrdem, texto: '' });
+  verProcesso(processoId);
+}
+
+async function salvarTextoPasso(passoId) {
+  const texto = document.getElementById(`passo-texto-${passoId}`).value;
+  await api(`processo_passos?id=eq.${passoId}`, 'PATCH', { texto });
+  toast('Passo salvo!', 'success');
+}
+
+async function anexarImagemPasso(passoId, processoId) {
+  const input = document.getElementById(`passo-imagem-${passoId}`);
+  const file = input.files[0];
+  if (!file) return;
+  const passoAtual = (window._passosAtuais||[]).find(p=>p.id===passoId);
+  if (passoAtual?.storage_path) {
+    await storageFetch(`/object/processos/${passoAtual.storage_path}`, { method:'DELETE' });
+  }
+  const storagePath = `${processoId}/${passoId}-${Date.now()}-${sanitizarNomeArquivo(file.name)}`;
+  await storageFetch(`/object/processos/${storagePath}`, { method:'POST', headers:{'Content-Type': file.type || 'application/octet-stream'}, body: file });
+  await api(`processo_passos?id=eq.${passoId}`, 'PATCH', { storage_path: storagePath });
+  toast('Imagem anexada!', 'success');
+  verProcesso(processoId);
+}
+
+async function removerPasso(passoId, processoId) {
+  if (!confirm('Remover esse passo?')) return;
+  const passoAtual = (window._passosAtuais||[]).find(p=>p.id===passoId);
+  if (passoAtual?.storage_path) {
+    await storageFetch(`/object/processos/${passoAtual.storage_path}`, { method:'DELETE' });
+  }
+  await api(`processo_passos?id=eq.${passoId}`, 'DELETE');
+  toast('Passo removido!', 'success');
+  verProcesso(processoId);
+}
+
+async function moverPasso(processoId, indice, direcao) {
+  const passos = window._passosAtuais;
+  const outroIndice = indice + direcao;
+  if (outroIndice < 0 || outroIndice >= passos.length) return;
+  const passoA = passos[indice], passoB = passos[outroIndice];
+  await api(`processo_passos?id=eq.${passoA.id}`, 'PATCH', { ordem: passoB.ordem });
+  await api(`processo_passos?id=eq.${passoB.id}`, 'PATCH', { ordem: passoA.ordem });
+  verProcesso(processoId);
 }
 
 // CONFIGURAÇÕES

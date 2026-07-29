@@ -982,7 +982,10 @@ async function verDemanda(obId, obNome) {
     <div class="card">
       <div class="card-header">
         <div style="font-weight:600;color:var(--navy);font-size:15px">${obNome} — ${meses[mesSel]} ${anoSel}</div>
-        <div style="font-size:13px;color:#9CA3AF">${feitos}/${total} concluídos · ${pct}%</div>
+        <div style="display:flex;align-items:center;gap:14px">
+          <div style="font-size:13px;color:#9CA3AF">${feitos}/${total} concluídos · ${pct}%</div>
+          <button class="btn btn-sm btn-navy" onclick="abrirGerenciarEmpresasObrig('${obId}','${obNome.replace(/'/g,"\\'")}')"><i class="ti ti-building"></i> Gerenciar empresas</button>
+        </div>
       </div>
       <div style="padding:16px 20px;background:#F9FAFB;border-bottom:1px solid #E5E7EB">
         <div style="background:#E5E7EB;border-radius:99px;height:8px;overflow:hidden">
@@ -1017,6 +1020,72 @@ async function toggleDemanda(clienteId, obId, feito, obNome) {
     await api('demandas', 'POST', { cliente_id: clienteId, obrigacao_id: obId, mes: mesSel, ano: anoSel, feito, data_conclusao: feito ? new Date().toISOString().split('T')[0] : null });
   }
   toast(feito ? 'Marcado como feito!' : 'Desmarcado!', 'success');
+  verDemanda(obId, obNome);
+}
+
+async function abrirGerenciarEmpresasObrig(obId, obNome) {
+  const clientes = await api('clientes?select=id,razao_social&status=eq.Ativo&order=razao_social');
+  const vinculos = await api(`cliente_obrigacoes?obrigacao_id=eq.${obId}&select=cliente_id`);
+  window._gerenciarObrigId = obId;
+  window._gerenciarObrigNome = obNome;
+  window._gerenciarClientesTodos = clientes;
+  window._gerenciarChecagemState = {};
+  clientes.forEach(cl => { window._gerenciarChecagemState[cl.id] = false; });
+  vinculos.forEach(v => { window._gerenciarChecagemState[v.cliente_id] = true; });
+
+  const overlay = document.createElement('div');
+  overlay.className = 'overlay show';
+  overlay.id = 'ov-gerenciar-obrig';
+  overlay.innerHTML = `
+    <div class="modal" style="width:480px;max-height:80vh;display:flex;flex-direction:column">
+      <div class="modal-title">Gerenciar empresas — ${obNome}</div>
+      <div class="modal-sub">Marque quais empresas têm essa obrigação</div>
+      <div class="field" style="margin:12px 0">
+        <input id="busca-gerenciar-obrig" placeholder="Buscar empresa..." oninput="filtrarGerenciarObrig()" style="height:38px;padding:0 10px;border-radius:8px;border:1.5px solid #E5E7EB;font-size:13px;width:100%">
+      </div>
+      <div id="lista-gerenciar-obrig" style="overflow-y:auto;flex:1;border:1px solid var(--border);border-radius:8px;padding:8px"></div>
+      <div class="modal-footer" style="margin-top:12px">
+        <button class="btn" onclick="document.getElementById('ov-gerenciar-obrig').remove()">Cancelar</button>
+        <button class="btn btn-navy" onclick="salvarGerenciarObrig()"><i class="ti ti-check"></i> Salvar</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  renderListaGerenciarObrig(clientes);
+}
+
+function renderListaGerenciarObrig(lista) {
+  document.getElementById('lista-gerenciar-obrig').innerHTML = lista.map(cl => `
+    <label style="display:flex;align-items:center;gap:8px;padding:6px 4px;font-size:13px;cursor:pointer">
+      <input type="checkbox" onchange="window._gerenciarChecagemState['${cl.id}']=this.checked" ${window._gerenciarChecagemState[cl.id]?'checked':''}>
+      ${cl.razao_social}
+    </label>`).join('') || '<div style="text-align:center;color:#9CA3AF;padding:16px">Nenhuma empresa encontrada.</div>';
+}
+
+function filtrarGerenciarObrig() {
+  const termo = document.getElementById('busca-gerenciar-obrig').value.trim().toLowerCase();
+  const filtrados = window._gerenciarClientesTodos.filter(cl => (cl.razao_social||'').toLowerCase().includes(termo));
+  renderListaGerenciarObrig(filtrados);
+}
+
+async function salvarGerenciarObrig() {
+  const obId = window._gerenciarObrigId;
+  const obNome = window._gerenciarObrigNome;
+  const vinculosAtuais = await api(`cliente_obrigacoes?obrigacao_id=eq.${obId}&select=cliente_id`);
+  const atuaisSet = new Set(vinculosAtuais.map(v => v.cliente_id));
+  const paraAdicionar = [];
+  const paraRemover = [];
+  Object.entries(window._gerenciarChecagemState).forEach(([clienteId, marcado]) => {
+    if (marcado && !atuaisSet.has(clienteId)) paraAdicionar.push(clienteId);
+    if (!marcado && atuaisSet.has(clienteId)) paraRemover.push(clienteId);
+  });
+  for (const clienteId of paraAdicionar) {
+    await api('cliente_obrigacoes', 'POST', { cliente_id: clienteId, obrigacao_id: obId });
+  }
+  for (const clienteId of paraRemover) {
+    await api(`cliente_obrigacoes?cliente_id=eq.${clienteId}&obrigacao_id=eq.${obId}`, 'DELETE');
+  }
+  document.getElementById('ov-gerenciar-obrig').remove();
+  toast(`Empresas atualizadas! ${paraAdicionar.length} adicionada(s), ${paraRemover.length} removida(s).`, 'success');
   verDemanda(obId, obNome);
 }
 

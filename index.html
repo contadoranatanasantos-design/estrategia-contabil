@@ -2460,7 +2460,7 @@ async function verProcesso(processoId) {
           <div style="display:flex;gap:14px;padding:16px 0;border-bottom:1px solid var(--border)">
             <div style="width:32px;height:32px;border-radius:50%;background:var(--navy);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:14px;flex-shrink:0">${i+1}</div>
             <div style="flex:1">
-              <textarea id="passo-texto-${passo.id}" style="width:100%;min-height:60px;padding:8px;border-radius:8px;border:1.5px solid #E5E7EB;font-size:13px;font-family:inherit" placeholder="Descreva esse passo...">${passo.texto||''}</textarea>
+              <textarea id="passo-texto-${passo.id}" onpaste="colarImagemPasso(event,'${passo.id}','${processoId}')" style="width:100%;min-height:60px;padding:8px;border-radius:8px;border:1.5px solid #E5E7EB;font-size:13px;font-family:inherit" placeholder="Descreva esse passo... (dica: dá pra colar um print aqui com Ctrl+V)">${passo.texto||''}</textarea>
               ${imagensUrls[passo.id] ? `<img src="${imagensUrls[passo.id]}" style="max-width:100%;max-height:300px;border-radius:8px;margin-top:8px;border:1px solid var(--border)">` : ''}
               <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap" class="no-print">
                 <button class="btn btn-sm" onclick="salvarTextoPasso('${passo.id}')"><i class="ti ti-device-floppy"></i> Salvar texto</button>
@@ -2492,10 +2492,7 @@ async function salvarTextoPasso(passoId) {
   toast('Passo salvo!', 'success');
 }
 
-async function anexarImagemPasso(passoId, processoId) {
-  const input = document.getElementById(`passo-imagem-${passoId}`);
-  const file = input.files[0];
-  if (!file) return;
+async function enviarImagemPasso(file, passoId, processoId) {
   const passoAtual = (window._passosAtuais||[]).find(p=>p.id===passoId);
   if (passoAtual?.storage_path) {
     await storageFetch(`/object/processos/${passoAtual.storage_path}`, { method:'DELETE' });
@@ -2505,6 +2502,27 @@ async function anexarImagemPasso(passoId, processoId) {
   await api(`processo_passos?id=eq.${passoId}`, 'PATCH', { storage_path: storagePath });
   toast('Imagem anexada!', 'success');
   verProcesso(processoId);
+}
+
+async function anexarImagemPasso(passoId, processoId) {
+  const input = document.getElementById(`passo-imagem-${passoId}`);
+  const file = input.files[0];
+  if (!file) return;
+  await enviarImagemPasso(file, passoId, processoId);
+}
+
+async function colarImagemPasso(event, passoId, processoId) {
+  const items = event.clipboardData?.items;
+  if (!items) return;
+  for (const item of items) {
+    if (item.type.startsWith('image/')) {
+      event.preventDefault();
+      const file = item.getAsFile();
+      const nomeado = new File([file], `print-${Date.now()}.png`, { type: file.type || 'image/png' });
+      await enviarImagemPasso(nomeado, passoId, processoId);
+      return;
+    }
+  }
 }
 
 async function removerPasso(passoId, processoId) {

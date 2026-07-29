@@ -2466,6 +2466,7 @@ async function verProcesso(processoId) {
                 <button class="btn btn-sm" onclick="salvarTextoPasso('${passo.id}')"><i class="ti ti-device-floppy"></i> Salvar texto</button>
                 <input type="file" id="passo-imagem-${passo.id}" accept="image/*" style="display:none" onchange="anexarImagemPasso('${passo.id}','${processoId}')">
                 <button class="btn btn-sm" onclick="document.getElementById('passo-imagem-${passo.id}').click()"><i class="ti ti-photo"></i> ${imagensUrls[passo.id]?'Trocar imagem':'Anexar imagem'}</button>
+                ${imagensUrls[passo.id] ? `<button class="btn btn-sm" onclick="abrirCortarImagem('${passo.id}','${processoId}','${imagensUrls[passo.id]}')"><i class="ti ti-crop"></i> Cortar imagem</button>` : ''}
                 ${i > 0 ? `<button class="btn btn-sm" onclick="moverPasso('${processoId}',${i},-1)"><i class="ti ti-arrow-up"></i></button>` : ''}
                 ${i < passos.length-1 ? `<button class="btn btn-sm" onclick="moverPasso('${processoId}',${i},1)"><i class="ti ti-arrow-down"></i></button>` : ''}
                 <button class="btn btn-sm btn-danger" onclick="removerPasso('${passo.id}','${processoId}')"><i class="ti ti-trash"></i></button>
@@ -2476,7 +2477,97 @@ async function verProcesso(processoId) {
       <div class="card-body no-print" style="border-top:1px solid var(--border)">
         <button class="btn btn-navy" onclick="adicionarPasso('${processoId}')"><i class="ti ti-plus"></i> Adicionar passo</button>
       </div>
+    </div>
+    <div class="overlay no-print" id="ov-cortar-imagem">
+      <div class="modal" style="width:auto;max-width:90vw">
+        <div class="modal-title">Cortar imagem</div>
+        <div class="modal-sub">Arraste o mouse sobre a imagem pra selecionar só a parte que quer manter.</div>
+        <div id="cortar-area" onmousedown="iniciarSelecaoCorte(event)" onmousemove="moverSelecaoCorte(event)" onmouseup="finalizarSelecaoCorte()" style="position:relative;display:inline-block;cursor:crosshair">
+          <img id="cortar-imagem-preview" ondragstart="return false" style="display:block;max-width:80vw;max-height:65vh;user-select:none">
+          <div id="cortar-selecao" style="position:absolute;display:none;border:2px dashed var(--gold);background:rgba(255,255,255,0.15);pointer-events:none"></div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" onclick="fecharCortarImagem()">Cancelar</button>
+          <button class="btn btn-navy" onclick="aplicarCorteImagem()"><i class="ti ti-crop"></i> Aplicar corte</button>
+        </div>
+      </div>
     </div>`;
+}
+
+let _cortarState = null;
+
+async function abrirCortarImagem(passoId, processoId, url) {
+  const resp = await fetch(url);
+  const blob = await resp.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  _cortarState = { passoId, processoId, objectUrl, dragging:false, start:null, rect:null };
+  document.getElementById('cortar-imagem-preview').src = objectUrl;
+  const sel = document.getElementById('cortar-selecao');
+  sel.style.display = 'none';
+  document.getElementById('ov-cortar-imagem').classList.add('show');
+}
+
+function fecharCortarImagem() {
+  if (_cortarState?.objectUrl) URL.revokeObjectURL(_cortarState.objectUrl);
+  _cortarState = null;
+  fecharModal('ov-cortar-imagem');
+}
+
+function iniciarSelecaoCorte(e) {
+  if (!_cortarState) return;
+  const area = document.getElementById('cortar-area');
+  const areaRect = area.getBoundingClientRect();
+  _cortarState.dragging = true;
+  _cortarState.start = { x: e.clientX - areaRect.left, y: e.clientY - areaRect.top };
+  const sel = document.getElementById('cortar-selecao');
+  sel.style.left = _cortarState.start.x + 'px';
+  sel.style.top = _cortarState.start.y + 'px';
+  sel.style.width = '0px';
+  sel.style.height = '0px';
+  sel.style.display = 'block';
+}
+
+function moverSelecaoCorte(e) {
+  if (!_cortarState?.dragging) return;
+  const area = document.getElementById('cortar-area');
+  const areaRect = area.getBoundingClientRect();
+  const x = Math.max(0, Math.min(e.clientX - areaRect.left, areaRect.width));
+  const y = Math.max(0, Math.min(e.clientY - areaRect.top, areaRect.height));
+  const left = Math.min(x, _cortarState.start.x);
+  const top = Math.min(y, _cortarState.start.y);
+  const width = Math.abs(x - _cortarState.start.x);
+  const height = Math.abs(y - _cortarState.start.y);
+  const sel = document.getElementById('cortar-selecao');
+  sel.style.left = left + 'px';
+  sel.style.top = top + 'px';
+  sel.style.width = width + 'px';
+  sel.style.height = height + 'px';
+  _cortarState.rect = { left, top, width, height };
+}
+
+function finalizarSelecaoCorte() {
+  if (_cortarState) _cortarState.dragging = false;
+}
+
+async function aplicarCorteImagem() {
+  const r = _cortarState?.rect;
+  if (!r || r.width < 5 || r.height < 5) {
+    toast('Selecione uma área da imagem primeiro', 'error');
+    return;
+  }
+  const img = document.getElementById('cortar-imagem-preview');
+  const scaleX = img.naturalWidth / img.clientWidth;
+  const scaleY = img.naturalHeight / img.clientHeight;
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(r.width * scaleX);
+  canvas.height = Math.round(r.height * scaleY);
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, r.left*scaleX, r.top*scaleY, r.width*scaleX, r.height*scaleY, 0, 0, canvas.width, canvas.height);
+  const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+  const file = new File([blob], `print-cortado-${Date.now()}.png`, { type: 'image/png' });
+  const { passoId, processoId } = _cortarState;
+  fecharCortarImagem();
+  await enviarImagemPasso(file, passoId, processoId);
 }
 
 async function adicionarPasso(processoId) {

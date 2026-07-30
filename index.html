@@ -2413,9 +2413,11 @@ async function criarProcesso(departamento) {
 
 async function excluirProcesso(id, nome, departamento) {
   if (!confirm(`Excluir o processo "${nome}"? Isso também apaga todos os passos dele.`)) return;
-  const passos = await api(`processo_passos?processo_id=eq.${id}&select=storage_path`);
-  for (const p of passos) {
-    if (p.storage_path) await storageFetch(`/object/processos/${p.storage_path}`, { method: 'DELETE' });
+  const passos = await api(`processo_passos?processo_id=eq.${id}&select=id`);
+  const passoIds = passos.map(p=>p.id).join(',');
+  const imagens = passoIds ? await api(`processo_passo_imagens?passo_id=in.(${passoIds})&select=storage_path`) : [];
+  for (const img of imagens) {
+    await storageFetch(`/object/processos/${img.storage_path}`, { method: 'DELETE' });
   }
   await api(`processos?id=eq.${id}`, 'DELETE');
   toast('Processo excluído!', 'success');
@@ -2425,15 +2427,17 @@ async function excluirProcesso(id, nome, departamento) {
 async function verProcesso(processoId) {
   const processo = (await api(`processos?id=eq.${processoId}`))[0];
   const passos = await api(`processo_passos?processo_id=eq.${processoId}&order=ordem`);
-  const imagensUrls = {};
-  for (const passo of passos) {
-    if (passo.storage_path) {
-      try {
-        const r = await storageFetch(`/object/sign/processos/${passo.storage_path}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({expiresIn:3600}) });
-        const data = await r.json();
-        if (data.signedURL) imagensUrls[passo.id] = SB_URL + '/storage/v1' + data.signedURL;
-      } catch(e) {}
-    }
+  const passoIds = passos.map(p=>p.id).join(',');
+  const imagens = passoIds ? await api(`processo_passo_imagens?passo_id=in.(${passoIds})&order=ordem`) : [];
+  const imagensPorPasso = {};
+  for (const img of imagens) {
+    try {
+      const r = await storageFetch(`/object/sign/processos/${img.storage_path}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({expiresIn:3600}) });
+      const data = await r.json();
+      if (data.signedURL) {
+        (imagensPorPasso[img.passo_id] = imagensPorPasso[img.passo_id] || []).push({ id: img.id, url: SB_URL + '/storage/v1' + data.signedURL });
+      }
+    } catch(e) {}
   }
   window._processoAtual = processo;
   window._passosAtuais = passos;
@@ -2452,6 +2456,12 @@ async function verProcesso(processoId) {
         <div>
           <div style="font-weight:600;color:var(--navy);font-size:18px">${processo.nome}</div>
           <div style="font-size:13px;color:#9CA3AF">${dep?.label||''}</div>
+          <div style="display:flex;align-items:center;gap:6px;margin-top:4px" class="no-print">
+            <span style="font-size:12px;color:#9CA3AF">Departamento:</span>
+            <select onchange="moverProcessoDepartamento('${processo.id}', this.value)" style="font-size:12px;padding:3px 8px;border-radius:6px;border:1.5px solid #E5E7EB;color:var(--navy);font-family:inherit">
+              ${Object.entries(DEPARTAMENTOS_PROCESSO).map(([key,d]) => `<option value="${key}" ${key===processo.departamento?'selected':''}>${d.label}</option>`).join('')}
+            </select>
+          </div>
         </div>
       </div>
       <div class="card-body" id="lista-passos-processo">
@@ -2460,13 +2470,21 @@ async function verProcesso(processoId) {
           <div style="display:flex;gap:14px;padding:16px 0;border-bottom:1px solid var(--border)">
             <div style="width:32px;height:32px;border-radius:50%;background:var(--navy);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:14px;flex-shrink:0">${i+1}</div>
             <div style="flex:1">
-              <textarea id="passo-texto-${passo.id}" onpaste="colarImagemPasso(event,'${passo.id}','${processoId}')" style="width:100%;min-height:60px;padding:8px;border-radius:8px;border:1.5px solid #E5E7EB;font-size:13px;font-family:inherit" placeholder="Descreva esse passo... (dica: dá pra colar um print aqui com Ctrl+V)">${passo.texto||''}</textarea>
-              ${imagensUrls[passo.id] ? `<img src="${imagensUrls[passo.id]}" style="max-width:100%;max-height:300px;border-radius:8px;margin-top:8px;border:1px solid var(--border)">` : ''}
+              <textarea id="passo-texto-${passo.id}" onpaste="colarImagemPasso(event,'${passo.id}','${processoId}')" spellcheck="true" lang="pt-BR" style="width:100%;min-height:160px;resize:vertical;padding:10px;border-radius:8px;border:1.5px solid #E5E7EB;font-size:14px;font-family:inherit;line-height:1.5" placeholder="Descreva esse passo... (dica: dá pra colar um print aqui com Ctrl+V)">${passo.texto||''}</textarea>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+                ${(imagensPorPasso[passo.id]||[]).map(img => `
+                  <div style="position:relative">
+                    <img src="${img.url}" style="max-width:220px;max-height:220px;border-radius:8px;border:1px solid var(--border);display:block">
+                    <div style="display:flex;gap:4px;margin-top:4px" class="no-print">
+                      <button class="btn btn-sm" onclick="abrirCortarImagem('${img.id}','${processoId}','${img.url}')"><i class="ti ti-crop"></i></button>
+                      <button class="btn btn-sm btn-danger" onclick="removerImagemPasso('${img.id}','${processoId}')"><i class="ti ti-trash"></i></button>
+                    </div>
+                  </div>`).join('')}
+              </div>
               <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap" class="no-print">
                 <button class="btn btn-sm" onclick="salvarTextoPasso('${passo.id}')"><i class="ti ti-device-floppy"></i> Salvar texto</button>
-                <input type="file" id="passo-imagem-${passo.id}" accept="image/*" style="display:none" onchange="anexarImagemPasso('${passo.id}','${processoId}')">
-                <button class="btn btn-sm" onclick="document.getElementById('passo-imagem-${passo.id}').click()"><i class="ti ti-photo"></i> ${imagensUrls[passo.id]?'Trocar imagem':'Anexar imagem'}</button>
-                ${imagensUrls[passo.id] ? `<button class="btn btn-sm" onclick="abrirCortarImagem('${passo.id}','${processoId}','${imagensUrls[passo.id]}')"><i class="ti ti-crop"></i> Cortar imagem</button>` : ''}
+                <input type="file" id="passo-imagem-${passo.id}" accept="image/*" multiple style="display:none" onchange="anexarImagemPasso('${passo.id}','${processoId}')">
+                <button class="btn btn-sm" onclick="document.getElementById('passo-imagem-${passo.id}').click()"><i class="ti ti-photo"></i> Anexar imagem</button>
                 ${i > 0 ? `<button class="btn btn-sm" onclick="moverPasso('${processoId}',${i},-1)"><i class="ti ti-arrow-up"></i></button>` : ''}
                 ${i < passos.length-1 ? `<button class="btn btn-sm" onclick="moverPasso('${processoId}',${i},1)"><i class="ti ti-arrow-down"></i></button>` : ''}
                 <button class="btn btn-sm btn-danger" onclick="removerPasso('${passo.id}','${processoId}')"><i class="ti ti-trash"></i></button>
@@ -2496,11 +2514,11 @@ async function verProcesso(processoId) {
 
 let _cortarState = null;
 
-async function abrirCortarImagem(passoId, processoId, url) {
+async function abrirCortarImagem(imagemId, processoId, url) {
   const resp = await fetch(url);
   const blob = await resp.blob();
   const objectUrl = URL.createObjectURL(blob);
-  _cortarState = { passoId, processoId, objectUrl, dragging:false, start:null, rect:null };
+  _cortarState = { imagemId, processoId, objectUrl, dragging:false, start:null, rect:null };
   document.getElementById('cortar-imagem-preview').src = objectUrl;
   const sel = document.getElementById('cortar-selecao');
   sel.style.display = 'none';
@@ -2565,9 +2583,15 @@ async function aplicarCorteImagem() {
   ctx.drawImage(img, r.left*scaleX, r.top*scaleY, r.width*scaleX, r.height*scaleY, 0, 0, canvas.width, canvas.height);
   const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
   const file = new File([blob], `print-cortado-${Date.now()}.png`, { type: 'image/png' });
-  const { passoId, processoId } = _cortarState;
+  const { imagemId, processoId } = _cortarState;
   fecharCortarImagem();
-  await enviarImagemPasso(file, passoId, processoId);
+  await substituirImagemExistente(file, imagemId, processoId);
+}
+
+async function moverProcessoDepartamento(processoId, novoDepartamento) {
+  await api(`processos?id=eq.${processoId}`, 'PATCH', { departamento: novoDepartamento });
+  toast('Processo movido!', 'success');
+  verProcesso(processoId);
 }
 
 async function adicionarPasso(processoId) {
@@ -2583,23 +2607,46 @@ async function salvarTextoPasso(passoId) {
   toast('Passo salvo!', 'success');
 }
 
-async function enviarImagemPasso(file, passoId, processoId) {
-  const passoAtual = (window._passosAtuais||[]).find(p=>p.id===passoId);
-  if (passoAtual?.storage_path) {
-    await storageFetch(`/object/processos/${passoAtual.storage_path}`, { method:'DELETE' });
-  }
+async function adicionarImagemPasso(file, passoId, processoId) {
+  const existentes = await api(`processo_passo_imagens?passo_id=eq.${passoId}&select=ordem&order=ordem.desc&limit=1`);
+  const proximaOrdem = existentes.length > 0 ? existentes[0].ordem + 1 : 0;
   const storagePath = `${processoId}/${passoId}-${Date.now()}-${sanitizarNomeArquivo(file.name)}`;
   await storageFetch(`/object/processos/${storagePath}`, { method:'POST', headers:{'Content-Type': file.type || 'application/octet-stream'}, body: file });
-  await api(`processo_passos?id=eq.${passoId}`, 'PATCH', { storage_path: storagePath });
+  await api('processo_passo_imagens', 'POST', { passo_id: passoId, storage_path: storagePath, ordem: proximaOrdem });
   toast('Imagem anexada!', 'success');
+  verProcesso(processoId);
+}
+
+async function substituirImagemExistente(file, imagemId, processoId) {
+  const imgAtual = (await api(`processo_passo_imagens?id=eq.${imagemId}&select=storage_path`))[0];
+  if (imgAtual?.storage_path) {
+    await storageFetch(`/object/processos/${imgAtual.storage_path}`, { method:'DELETE' });
+  }
+  const storagePath = `${processoId}/${imagemId}-${Date.now()}-recorte.png`;
+  await storageFetch(`/object/processos/${storagePath}`, { method:'POST', headers:{'Content-Type': file.type || 'application/octet-stream'}, body: file });
+  await api(`processo_passo_imagens?id=eq.${imagemId}`, 'PATCH', { storage_path: storagePath });
+  toast('Imagem atualizada!', 'success');
+  verProcesso(processoId);
+}
+
+async function removerImagemPasso(imagemId, processoId) {
+  if (!confirm('Remover essa imagem?')) return;
+  const imgAtual = (await api(`processo_passo_imagens?id=eq.${imagemId}&select=storage_path`))[0];
+  if (imgAtual?.storage_path) {
+    await storageFetch(`/object/processos/${imgAtual.storage_path}`, { method:'DELETE' });
+  }
+  await api(`processo_passo_imagens?id=eq.${imagemId}`, 'DELETE');
+  toast('Imagem removida!', 'success');
   verProcesso(processoId);
 }
 
 async function anexarImagemPasso(passoId, processoId) {
   const input = document.getElementById(`passo-imagem-${passoId}`);
-  const file = input.files[0];
-  if (!file) return;
-  await enviarImagemPasso(file, passoId, processoId);
+  const files = Array.from(input.files || []);
+  if (files.length === 0) return;
+  for (const file of files) {
+    await adicionarImagemPasso(file, passoId, processoId);
+  }
 }
 
 async function colarImagemPasso(event, passoId, processoId) {
@@ -2610,7 +2657,7 @@ async function colarImagemPasso(event, passoId, processoId) {
       event.preventDefault();
       const file = item.getAsFile();
       const nomeado = new File([file], `print-${Date.now()}.png`, { type: file.type || 'image/png' });
-      await enviarImagemPasso(nomeado, passoId, processoId);
+      await adicionarImagemPasso(nomeado, passoId, processoId);
       return;
     }
   }
@@ -2618,9 +2665,9 @@ async function colarImagemPasso(event, passoId, processoId) {
 
 async function removerPasso(passoId, processoId) {
   if (!confirm('Remover esse passo?')) return;
-  const passoAtual = (window._passosAtuais||[]).find(p=>p.id===passoId);
-  if (passoAtual?.storage_path) {
-    await storageFetch(`/object/processos/${passoAtual.storage_path}`, { method:'DELETE' });
+  const imagens = await api(`processo_passo_imagens?passo_id=eq.${passoId}&select=storage_path`);
+  for (const img of imagens) {
+    await storageFetch(`/object/processos/${img.storage_path}`, { method:'DELETE' });
   }
   await api(`processo_passos?id=eq.${passoId}`, 'DELETE');
   toast('Passo removido!', 'success');

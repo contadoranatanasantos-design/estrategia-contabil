@@ -2470,13 +2470,13 @@ async function verProcesso(processoId) {
           <div style="display:flex;gap:14px;padding:16px 0;border-bottom:1px solid var(--border)">
             <div style="width:32px;height:32px;border-radius:50%;background:var(--navy);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:14px;flex-shrink:0">${i+1}</div>
             <div style="flex:1">
-              <textarea id="passo-texto-${passo.id}" onpaste="colarImagemPasso(event,'${passo.id}','${processoId}')" spellcheck="true" lang="pt-BR" style="width:100%;min-height:160px;resize:vertical;padding:10px;border-radius:8px;border:1.5px solid #E5E7EB;font-size:14px;font-family:inherit;line-height:1.5" placeholder="Descreva esse passo... (dica: dá pra colar um print aqui com Ctrl+V)">${passo.texto||''}</textarea>
+              <textarea id="passo-texto-${passo.id}" onpaste="colarImagemPasso(event,'${passo.id}','${processoId}')" onkeydown="tratarTabPasso(event)" spellcheck="true" lang="pt-BR" style="width:100%;min-height:160px;resize:vertical;padding:10px;border-radius:8px;border:1.5px solid #E5E7EB;font-size:14px;font-family:inherit;line-height:1.5" placeholder="Descreva esse passo... (dica: dá pra colar um print aqui com Ctrl+V)">${passo.texto||''}</textarea>
               <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
                 ${(imagensPorPasso[passo.id]||[]).map(img => `
                   <div style="position:relative">
                     <img src="${img.url}" style="max-width:220px;max-height:220px;border-radius:8px;border:1px solid var(--border);display:block">
                     <div style="display:flex;gap:4px;margin-top:4px" class="no-print">
-                      <button class="btn btn-sm" onclick="abrirCortarImagem('${img.id}','${processoId}','${img.url}')"><i class="ti ti-crop"></i></button>
+                      <button class="btn btn-sm" onclick="abrirCortarImagem('${img.id}','${processoId}','${img.url}')"><i class="ti ti-edit"></i> Editar</button>
                       <button class="btn btn-sm btn-danger" onclick="removerImagemPasso('${img.id}','${processoId}')"><i class="ti ti-trash"></i></button>
                     </div>
                   </div>`).join('')}
@@ -2497,92 +2497,219 @@ async function verProcesso(processoId) {
       </div>
     </div>
     <div class="overlay no-print" id="ov-cortar-imagem">
-      <div class="modal" style="width:auto;max-width:90vw">
-        <div class="modal-title">Cortar imagem</div>
-        <div class="modal-sub">Arraste o mouse sobre a imagem pra selecionar só a parte que quer manter.</div>
-        <div id="cortar-area" onmousedown="iniciarSelecaoCorte(event)" onmousemove="moverSelecaoCorte(event)" onmouseup="finalizarSelecaoCorte()" style="position:relative;display:inline-block;cursor:crosshair">
-          <img id="cortar-imagem-preview" ondragstart="return false" style="display:block;max-width:80vw;max-height:65vh;user-select:none">
+      <div class="modal" style="width:auto;max-width:92vw">
+        <div class="modal-title">Editar imagem</div>
+        <div class="modal-sub">Escolha uma ferramenta e desenhe sobre a imagem.</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+          <button class="btn btn-sm" id="btn-modo-cortar" onclick="definirModoEdicao('cortar')"><i class="ti ti-crop"></i> Cortar</button>
+          <button class="btn btn-sm" id="btn-modo-seta" onclick="definirModoEdicao('seta')"><i class="ti ti-arrow-up-right"></i> Seta</button>
+          <button class="btn btn-sm" id="btn-modo-texto" onclick="definirModoEdicao('texto')"><i class="ti ti-typography"></i> Observação</button>
+          <button class="btn btn-sm" id="btn-modo-pintar" onclick="definirModoEdicao('pintar')"><i class="ti ti-brush"></i> Pintar</button>
+          <div style="display:flex;gap:5px;align-items:center;margin-left:6px">
+            ${['#E02424','#2563EB','#F2C230','#16A34A','#111827'].map(c => `<div onclick="definirCorEdicao('${c}')" id="swatch-${c}" style="width:20px;height:20px;border-radius:50%;background:${c};cursor:pointer;box-shadow:0 0 0 1px #E5E7EB"></div>`).join('')}
+          </div>
+          <button class="btn btn-sm" onclick="desfazerEdicao()"><i class="ti ti-arrow-back-up"></i> Desfazer</button>
+          <button class="btn btn-sm btn-navy" id="btn-cortar-selecao" style="display:none" onclick="cortarSelecaoAtual()"><i class="ti ti-check"></i> Cortar seleção</button>
+        </div>
+        <div id="cortar-area" onmousedown="iniciarAcaoEdicao(event)" onmousemove="moverAcaoEdicao(event)" onmouseup="finalizarAcaoEdicao(event)" onmouseleave="finalizarAcaoEdicao(event)" style="position:relative;display:inline-block;cursor:crosshair">
+          <canvas id="cortar-canvas" style="display:block;max-width:82vw;max-height:60vh;user-select:none;border:1px solid var(--border)"></canvas>
           <div id="cortar-selecao" style="position:absolute;display:none;border:2px dashed var(--gold);background:rgba(255,255,255,0.15);pointer-events:none"></div>
         </div>
         <div class="modal-footer">
           <button class="btn" onclick="fecharCortarImagem()">Cancelar</button>
-          <button class="btn btn-navy" onclick="aplicarCorteImagem()"><i class="ti ti-crop"></i> Aplicar corte</button>
+          <button class="btn btn-navy" onclick="aplicarCorteImagem()"><i class="ti ti-device-floppy"></i> Salvar</button>
         </div>
       </div>
     </div>`;
 }
 
 let _cortarState = null;
+const CORES_EDICAO = ['#E02424','#2563EB','#F2C230','#16A34A','#111827'];
 
 async function abrirCortarImagem(imagemId, processoId, url) {
   const resp = await fetch(url);
   const blob = await resp.blob();
   const objectUrl = URL.createObjectURL(blob);
-  _cortarState = { imagemId, processoId, objectUrl, dragging:false, start:null, rect:null };
-  document.getElementById('cortar-imagem-preview').src = objectUrl;
-  const sel = document.getElementById('cortar-selecao');
-  sel.style.display = 'none';
+  const img = new Image();
+  await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = objectUrl; });
+  const canvas = document.getElementById('cortar-canvas');
+  canvas.width = img.naturalWidth;
+  canvas.height = img.naturalHeight;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0);
+  URL.revokeObjectURL(objectUrl);
+  _cortarState = {
+    imagemId, processoId, canvas, ctx,
+    modo: 'cortar', cor: CORES_EDICAO[0],
+    historico: [canvas.toDataURL()],
+    desenhando: false, inicio: null, inicioTela: null, selecao: null, snapshotAtual: null
+  };
+  definirModoEdicao('cortar');
+  definirCorEdicao(CORES_EDICAO[0]);
   document.getElementById('ov-cortar-imagem').classList.add('show');
 }
 
 function fecharCortarImagem() {
-  if (_cortarState?.objectUrl) URL.revokeObjectURL(_cortarState.objectUrl);
   _cortarState = null;
   fecharModal('ov-cortar-imagem');
 }
 
-function iniciarSelecaoCorte(e) {
+function definirModoEdicao(modo) {
   if (!_cortarState) return;
-  const area = document.getElementById('cortar-area');
-  const areaRect = area.getBoundingClientRect();
-  _cortarState.dragging = true;
-  _cortarState.start = { x: e.clientX - areaRect.left, y: e.clientY - areaRect.top };
-  const sel = document.getElementById('cortar-selecao');
-  sel.style.left = _cortarState.start.x + 'px';
-  sel.style.top = _cortarState.start.y + 'px';
-  sel.style.width = '0px';
-  sel.style.height = '0px';
-  sel.style.display = 'block';
+  _cortarState.modo = modo;
+  _cortarState.selecao = null;
+  ['cortar','seta','texto','pintar'].forEach(m => {
+    document.getElementById(`btn-modo-${m}`)?.classList.toggle('btn-navy', m === modo);
+  });
+  document.getElementById('cortar-selecao').style.display = 'none';
+  document.getElementById('btn-cortar-selecao').style.display = 'none';
 }
 
-function moverSelecaoCorte(e) {
-  if (!_cortarState?.dragging) return;
-  const area = document.getElementById('cortar-area');
-  const areaRect = area.getBoundingClientRect();
-  const x = Math.max(0, Math.min(e.clientX - areaRect.left, areaRect.width));
-  const y = Math.max(0, Math.min(e.clientY - areaRect.top, areaRect.height));
-  const left = Math.min(x, _cortarState.start.x);
-  const top = Math.min(y, _cortarState.start.y);
-  const width = Math.abs(x - _cortarState.start.x);
-  const height = Math.abs(y - _cortarState.start.y);
-  const sel = document.getElementById('cortar-selecao');
-  sel.style.left = left + 'px';
-  sel.style.top = top + 'px';
-  sel.style.width = width + 'px';
-  sel.style.height = height + 'px';
-  _cortarState.rect = { left, top, width, height };
+function definirCorEdicao(cor) {
+  if (!_cortarState) return;
+  _cortarState.cor = cor;
+  CORES_EDICAO.forEach(c => {
+    document.getElementById(`swatch-${c}`).style.boxShadow = c === cor ? '0 0 0 2px var(--navy)' : '0 0 0 1px #E5E7EB';
+  });
 }
 
-function finalizarSelecaoCorte() {
-  if (_cortarState) _cortarState.dragging = false;
+function coordenadaCanvas(e) {
+  const canvas = _cortarState.canvas;
+  const rect = canvas.getBoundingClientRect();
+  return { x: (e.clientX - rect.left) * (canvas.width / rect.width), y: (e.clientY - rect.top) * (canvas.height / rect.height) };
+}
+
+function desenharSeta(ctx, x1, y1, x2, y2, cor, canvasWidth) {
+  const largura = Math.max(3, canvasWidth * 0.005);
+  const headlen = Math.max(12, canvasWidth * 0.018);
+  const angle = Math.atan2(y2 - y1, x2 - x1);
+  ctx.strokeStyle = cor; ctx.fillStyle = cor; ctx.lineWidth = largura; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(x2, y2);
+  ctx.lineTo(x2 - headlen*Math.cos(angle-Math.PI/6), y2 - headlen*Math.sin(angle-Math.PI/6));
+  ctx.lineTo(x2 - headlen*Math.cos(angle+Math.PI/6), y2 - headlen*Math.sin(angle+Math.PI/6));
+  ctx.closePath();
+  ctx.fill();
+}
+
+function salvarHistoricoEdicao() {
+  _cortarState.historico.push(_cortarState.canvas.toDataURL());
+  if (_cortarState.historico.length > 20) _cortarState.historico.shift();
+}
+
+function iniciarAcaoEdicao(e) {
+  if (!_cortarState) return;
+  const { modo, canvas, ctx } = _cortarState;
+  const p = coordenadaCanvas(e);
+  if (modo === 'cortar') {
+    _cortarState.desenhando = true;
+    const areaRect = document.getElementById('cortar-area').getBoundingClientRect();
+    _cortarState.inicioTela = { x: e.clientX - areaRect.left, y: e.clientY - areaRect.top };
+    const sel = document.getElementById('cortar-selecao');
+    sel.style.left = _cortarState.inicioTela.x + 'px';
+    sel.style.top = _cortarState.inicioTela.y + 'px';
+    sel.style.width = '0px'; sel.style.height = '0px';
+    sel.style.display = 'block';
+  } else if (modo === 'seta') {
+    _cortarState.desenhando = true;
+    _cortarState.inicio = p;
+    _cortarState.snapshotAtual = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  } else if (modo === 'pintar') {
+    _cortarState.desenhando = true;
+    ctx.strokeStyle = _cortarState.cor;
+    ctx.lineWidth = Math.max(4, canvas.width * 0.006);
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+  } else if (modo === 'texto') {
+    const texto = prompt('Digite a observação:');
+    if (texto) {
+      const tamanho = Math.max(18, Math.round(canvas.width * 0.022));
+      ctx.font = `600 ${tamanho}px Arial`;
+      ctx.fillStyle = _cortarState.cor;
+      ctx.fillText(texto, p.x, p.y);
+      salvarHistoricoEdicao();
+    }
+  }
+}
+
+function moverAcaoEdicao(e) {
+  if (!_cortarState?.desenhando) return;
+  const { modo, canvas, ctx } = _cortarState;
+  const p = coordenadaCanvas(e);
+  if (modo === 'cortar') {
+    const areaRect = document.getElementById('cortar-area').getBoundingClientRect();
+    const x = Math.max(0, Math.min(e.clientX - areaRect.left, areaRect.width));
+    const y = Math.max(0, Math.min(e.clientY - areaRect.top, areaRect.height));
+    const left = Math.min(x, _cortarState.inicioTela.x);
+    const top = Math.min(y, _cortarState.inicioTela.y);
+    const width = Math.abs(x - _cortarState.inicioTela.x);
+    const height = Math.abs(y - _cortarState.inicioTela.y);
+    const sel = document.getElementById('cortar-selecao');
+    sel.style.left = left+'px'; sel.style.top = top+'px'; sel.style.width = width+'px'; sel.style.height = height+'px';
+    _cortarState.selecao = { left, top, width, height };
+  } else if (modo === 'seta') {
+    ctx.putImageData(_cortarState.snapshotAtual, 0, 0);
+    desenharSeta(ctx, _cortarState.inicio.x, _cortarState.inicio.y, p.x, p.y, _cortarState.cor, canvas.width);
+  } else if (modo === 'pintar') {
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+  }
+}
+
+function finalizarAcaoEdicao(e) {
+  if (!_cortarState?.desenhando) return;
+  const { modo } = _cortarState;
+  _cortarState.desenhando = false;
+  if (modo === 'cortar') {
+    const sel = _cortarState.selecao;
+    document.getElementById('btn-cortar-selecao').style.display = (sel && sel.width > 5 && sel.height > 5) ? 'inline-flex' : 'none';
+  } else if (modo === 'seta') {
+    salvarHistoricoEdicao();
+  } else if (modo === 'pintar') {
+    _cortarState.ctx.closePath();
+    salvarHistoricoEdicao();
+  }
+}
+
+function cortarSelecaoAtual() {
+  const sel = _cortarState?.selecao;
+  if (!sel || sel.width < 5 || sel.height < 5) return;
+  const canvas = _cortarState.canvas;
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width, scaleY = canvas.height / rect.height;
+  const sx = sel.left*scaleX, sy = sel.top*scaleY, sw = sel.width*scaleX, sh = sel.height*scaleY;
+  const novo = document.createElement('canvas');
+  novo.width = Math.round(sw); novo.height = Math.round(sh);
+  novo.getContext('2d').drawImage(canvas, sx, sy, sw, sh, 0, 0, novo.width, novo.height);
+  canvas.width = novo.width; canvas.height = novo.height;
+  _cortarState.ctx.drawImage(novo, 0, 0);
+  document.getElementById('cortar-selecao').style.display = 'none';
+  document.getElementById('btn-cortar-selecao').style.display = 'none';
+  _cortarState.selecao = null;
+  salvarHistoricoEdicao();
+}
+
+async function desfazerEdicao() {
+  if (!_cortarState || _cortarState.historico.length <= 1) return;
+  _cortarState.historico.pop();
+  const dataUrl = _cortarState.historico[_cortarState.historico.length - 1];
+  const img = new Image();
+  await new Promise(res => { img.onload = res; img.src = dataUrl; });
+  _cortarState.canvas.width = img.naturalWidth;
+  _cortarState.canvas.height = img.naturalHeight;
+  _cortarState.ctx.drawImage(img, 0, 0);
+  document.getElementById('cortar-selecao').style.display = 'none';
+  document.getElementById('btn-cortar-selecao').style.display = 'none';
+  _cortarState.selecao = null;
 }
 
 async function aplicarCorteImagem() {
-  const r = _cortarState?.rect;
-  if (!r || r.width < 5 || r.height < 5) {
-    toast('Selecione uma área da imagem primeiro', 'error');
-    return;
-  }
-  const img = document.getElementById('cortar-imagem-preview');
-  const scaleX = img.naturalWidth / img.clientWidth;
-  const scaleY = img.naturalHeight / img.clientHeight;
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.round(r.width * scaleX);
-  canvas.height = Math.round(r.height * scaleY);
-  const ctx = canvas.getContext('2d');
-  ctx.drawImage(img, r.left*scaleX, r.top*scaleY, r.width*scaleX, r.height*scaleY, 0, 0, canvas.width, canvas.height);
+  if (!_cortarState) return;
+  const canvas = _cortarState.canvas;
   const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
-  const file = new File([blob], `print-cortado-${Date.now()}.png`, { type: 'image/png' });
+  const file = new File([blob], `print-editado-${Date.now()}.png`, { type: 'image/png' });
   const { imagemId, processoId } = _cortarState;
   fecharCortarImagem();
   await substituirImagemExistente(file, imagemId, processoId);
@@ -2647,6 +2774,15 @@ async function anexarImagemPasso(passoId, processoId) {
   for (const file of files) {
     await adicionarImagemPasso(file, passoId, processoId);
   }
+}
+
+function tratarTabPasso(event) {
+  if (event.key !== 'Tab') return;
+  event.preventDefault();
+  const ta = event.target;
+  const inicio = ta.selectionStart, fim = ta.selectionEnd;
+  ta.value = ta.value.slice(0, inicio) + '    ' + ta.value.slice(fim);
+  ta.selectionStart = ta.selectionEnd = inicio + 4;
 }
 
 async function colarImagemPasso(event, passoId, processoId) {

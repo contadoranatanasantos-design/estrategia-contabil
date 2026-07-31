@@ -2470,7 +2470,7 @@ async function verProcesso(processoId) {
           <div style="display:flex;gap:14px;padding:16px 0;border-bottom:1px solid var(--border)">
             <div style="width:32px;height:32px;border-radius:50%;background:var(--navy);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:14px;flex-shrink:0">${i+1}</div>
             <div style="flex:1">
-              <textarea id="passo-texto-${passo.id}" onpaste="colarImagemPasso(event,'${passo.id}','${processoId}')" onkeydown="tratarTabPasso(event)" spellcheck="true" lang="pt-BR" style="width:100%;min-height:160px;resize:vertical;padding:10px;border-radius:8px;border:1.5px solid #E5E7EB;font-size:14px;font-family:inherit;line-height:1.5;text-transform:uppercase" placeholder="Descreva esse passo... (dica: dá pra colar um print aqui com Ctrl+V)">${passo.texto||''}</textarea>
+              <textarea id="passo-texto-${passo.id}" onpaste="colarImagemPasso(event,'${passo.id}','${processoId}')" onkeydown="tratarTabPasso(event)" spellcheck="true" lang="pt-BR" style="width:100%;min-height:160px;resize:vertical;padding:10px;border-radius:8px;border:1.5px solid #E5E7EB;font-size:14px;font-family:inherit;line-height:1.5" placeholder="Descreva esse passo... (dica: dá pra colar um print aqui com Ctrl+V)">${passo.texto||''}</textarea>
               <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
                 ${(imagensPorPasso[passo.id]||[]).map(img => `
                   <div style="position:relative">

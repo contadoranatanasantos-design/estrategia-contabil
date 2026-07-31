@@ -2441,6 +2441,7 @@ async function verProcesso(processoId) {
   }
   window._processoAtual = processo;
   window._passosAtuais = passos;
+  window._imagensPorPasso = imagensPorPasso;
   const dep = DEPARTAMENTOS_PROCESSO[processo.departamento];
   const c = document.getElementById('content');
   c.innerHTML = `
@@ -2472,9 +2473,9 @@ async function verProcesso(processoId) {
             <div style="flex:1">
               <textarea id="passo-texto-${passo.id}" onpaste="colarImagemPasso(event,'${passo.id}','${processoId}')" onkeydown="tratarTabPasso(event)" spellcheck="true" lang="pt-BR" style="width:100%;min-height:160px;resize:vertical;padding:10px;border-radius:8px;border:1.5px solid #E5E7EB;font-size:14px;font-family:inherit;line-height:1.5" placeholder="Descreva esse passo... (dica: dá pra colar um print aqui com Ctrl+V)">${passo.texto||''}</textarea>
               <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
-                ${(imagensPorPasso[passo.id]||[]).map(img => `
+                ${(imagensPorPasso[passo.id]||[]).map((img, idx) => `
                   <div style="position:relative">
-                    <img src="${img.url}" style="max-width:220px;max-height:220px;border-radius:8px;border:1px solid var(--border);display:block">
+                    <img src="${img.url}" onclick="abrirVisualizarImagem('${passo.id}','${processoId}',${idx})" style="max-width:220px;max-height:220px;border-radius:8px;border:1px solid var(--border);display:block;cursor:zoom-in">
                     <div style="display:flex;gap:4px;margin-top:4px" class="no-print">
                       <button class="btn btn-sm" onclick="abrirCortarImagem('${img.id}','${processoId}','${img.url}')"><i class="ti ti-edit"></i> Editar</button>
                       <button class="btn btn-sm btn-danger" onclick="removerImagemPasso('${img.id}','${processoId}')"><i class="ti ti-trash"></i></button>
@@ -2496,6 +2497,22 @@ async function verProcesso(processoId) {
         <button class="btn btn-navy" onclick="adicionarPasso('${processoId}')"><i class="ti ti-plus"></i> Adicionar passo</button>
       </div>
     </div>
+    <div class="overlay no-print" id="ov-visualizar-imagem" onclick="if(event.target===this) fecharModal('ov-visualizar-imagem')">
+      <div class="modal" style="width:auto;max-width:94vw">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <div style="font-size:13px;color:#9CA3AF" id="visualizar-imagem-contador"></div>
+          <button class="btn btn-sm" onclick="fecharModal('ov-visualizar-imagem')"><i class="ti ti-x"></i> Fechar</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;justify-content:center">
+          <button class="btn" id="btn-visualizar-anterior" onclick="navegarVisualizarImagem(-1)"><i class="ti ti-chevron-left"></i></button>
+          <img id="visualizar-imagem-img" style="max-width:78vw;max-height:76vh;border-radius:8px;border:1px solid var(--border);display:block">
+          <button class="btn" id="btn-visualizar-proxima" onclick="navegarVisualizarImagem(1)"><i class="ti ti-chevron-right"></i></button>
+        </div>
+        <div style="display:flex;justify-content:center;margin-top:14px">
+          <button class="btn btn-navy" onclick="editarDoVisualizador()"><i class="ti ti-edit"></i> Editar esta imagem</button>
+        </div>
+      </div>
+    </div>
     <div class="overlay no-print" id="ov-cortar-imagem">
       <div class="modal" style="width:auto;max-width:92vw">
         <div class="modal-title">Editar imagem</div>
@@ -2510,7 +2527,9 @@ async function verProcesso(processoId) {
           </div>
           <button class="btn btn-sm" onclick="desfazerEdicao()"><i class="ti ti-arrow-back-up"></i> Desfazer</button>
           <button class="btn btn-sm btn-navy" id="btn-cortar-selecao" style="display:none" onclick="cortarSelecaoAtual()"><i class="ti ti-check"></i> Cortar seleção</button>
+          <button class="btn btn-sm btn-navy" id="btn-confirmar-texto" style="display:none" onclick="confirmarTextoPendente()"><i class="ti ti-check"></i> Confirmar posição</button>
         </div>
+        <div class="modal-sub" id="dica-modo-texto" style="display:none;margin-top:-6px;margin-bottom:10px">Clique na imagem pra escrever, depois arraste o texto pra ajustar a posição antes de confirmar.</div>
         <div id="cortar-area" onmousedown="iniciarAcaoEdicao(event)" onmousemove="moverAcaoEdicao(event)" onmouseup="finalizarAcaoEdicao(event)" onmouseleave="finalizarAcaoEdicao(event)" style="position:relative;display:inline-block;cursor:crosshair">
           <canvas id="cortar-canvas" style="display:block;max-width:82vw;max-height:60vh;user-select:none;border:1px solid var(--border)"></canvas>
           <div id="cortar-selecao" style="position:absolute;display:none;border:2px dashed var(--gold);background:rgba(255,255,255,0.15);pointer-events:none"></div>
@@ -2521,6 +2540,39 @@ async function verProcesso(processoId) {
         </div>
       </div>
     </div>`;
+}
+
+let _visualizarState = null;
+
+function abrirVisualizarImagem(passoId, processoId, indice) {
+  _visualizarState = { passoId, processoId, indice };
+  renderizarVisualizarImagem();
+  document.getElementById('ov-visualizar-imagem').classList.add('show');
+}
+
+function renderizarVisualizarImagem() {
+  const imgs = window._imagensPorPasso[_visualizarState.passoId] || [];
+  const img = imgs[_visualizarState.indice];
+  document.getElementById('visualizar-imagem-img').src = img.url;
+  document.getElementById('visualizar-imagem-contador').innerText = imgs.length > 1 ? `${_visualizarState.indice+1} de ${imgs.length}` : '';
+  document.getElementById('btn-visualizar-anterior').style.visibility = _visualizarState.indice > 0 ? 'visible' : 'hidden';
+  document.getElementById('btn-visualizar-proxima').style.visibility = _visualizarState.indice < imgs.length-1 ? 'visible' : 'hidden';
+}
+
+function navegarVisualizarImagem(delta) {
+  const imgs = window._imagensPorPasso[_visualizarState.passoId] || [];
+  const novo = _visualizarState.indice + delta;
+  if (novo < 0 || novo >= imgs.length) return;
+  _visualizarState.indice = novo;
+  renderizarVisualizarImagem();
+}
+
+function editarDoVisualizador() {
+  const imgs = window._imagensPorPasso[_visualizarState.passoId] || [];
+  const img = imgs[_visualizarState.indice];
+  const processoId = _visualizarState.processoId;
+  fecharModal('ov-visualizar-imagem');
+  abrirCortarImagem(img.id, processoId, img.url);
 }
 
 let _cortarState = null;
@@ -2542,7 +2594,8 @@ async function abrirCortarImagem(imagemId, processoId, url) {
     imagemId, processoId, canvas, ctx,
     modo: 'cortar', cor: CORES_EDICAO[0],
     historico: [canvas.toDataURL()],
-    desenhando: false, inicio: null, inicioTela: null, selecao: null, snapshotAtual: null
+    desenhando: false, inicio: null, inicioTela: null, selecao: null, snapshotAtual: null,
+    textoPendente: null, arrastandoTexto: false, arrastarOffset: null, snapshotBase: null
   };
   definirModoEdicao('cortar');
   definirCorEdicao(CORES_EDICAO[0]);
@@ -2556,6 +2609,7 @@ function fecharCortarImagem() {
 
 function definirModoEdicao(modo) {
   if (!_cortarState) return;
+  if (_cortarState.textoPendente) confirmarTextoPendente();
   _cortarState.modo = modo;
   _cortarState.selecao = null;
   ['cortar','seta','texto','pintar'].forEach(m => {
@@ -2563,6 +2617,7 @@ function definirModoEdicao(modo) {
   });
   document.getElementById('cortar-selecao').style.display = 'none';
   document.getElementById('btn-cortar-selecao').style.display = 'none';
+  document.getElementById('dica-modo-texto').style.display = modo === 'texto' ? 'block' : 'none';
 }
 
 function definirCorEdicao(cor) {
@@ -2598,6 +2653,29 @@ function salvarHistoricoEdicao() {
   if (_cortarState.historico.length > 20) _cortarState.historico.shift();
 }
 
+function medirTextoPendente(ctx, t) {
+  ctx.font = `600 ${t.tamanho}px Arial`;
+  return ctx.measureText(t.texto).width;
+}
+
+function redesenharComTextoPendente() {
+  const { ctx, snapshotBase, textoPendente: t } = _cortarState;
+  if (snapshotBase) ctx.putImageData(snapshotBase, 0, 0);
+  if (t) {
+    ctx.font = `600 ${t.tamanho}px Arial`;
+    ctx.fillStyle = t.cor;
+    ctx.fillText(t.texto, t.x, t.y);
+  }
+}
+
+function confirmarTextoPendente() {
+  if (!_cortarState?.textoPendente) return;
+  _cortarState.textoPendente = null;
+  _cortarState.snapshotBase = null;
+  document.getElementById('btn-confirmar-texto').style.display = 'none';
+  salvarHistoricoEdicao();
+}
+
 function iniciarAcaoEdicao(e) {
   if (!_cortarState) return;
   const { modo, canvas, ctx } = _cortarState;
@@ -2623,18 +2701,38 @@ function iniciarAcaoEdicao(e) {
     ctx.beginPath();
     ctx.moveTo(p.x, p.y);
   } else if (modo === 'texto') {
+    const pend = _cortarState.textoPendente;
+    if (pend) {
+      const largura = medirTextoPendente(ctx, pend);
+      const dentro = p.x >= pend.x - 10 && p.x <= pend.x + largura + 10 && p.y >= pend.y - pend.tamanho - 6 && p.y <= pend.y + 10;
+      if (dentro) {
+        _cortarState.desenhando = true;
+        _cortarState.arrastandoTexto = true;
+        _cortarState.arrastarOffset = { dx: p.x - pend.x, dy: p.y - pend.y };
+        return;
+      }
+      confirmarTextoPendente();
+    }
     const texto = prompt('Digite a observação:');
     if (texto) {
+      _cortarState.snapshotBase = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const tamanho = Math.max(18, Math.round(canvas.width * 0.022));
-      ctx.font = `600 ${tamanho}px Arial`;
-      ctx.fillStyle = _cortarState.cor;
-      ctx.fillText(texto, p.x, p.y);
-      salvarHistoricoEdicao();
+      _cortarState.textoPendente = { texto, x: p.x, y: p.y, cor: _cortarState.cor, tamanho };
+      redesenharComTextoPendente();
+      document.getElementById('btn-confirmar-texto').style.display = 'inline-flex';
     }
   }
 }
 
 function moverAcaoEdicao(e) {
+  if (_cortarState?.arrastandoTexto) {
+    const p = coordenadaCanvas(e);
+    const t = _cortarState.textoPendente;
+    t.x = p.x - _cortarState.arrastarOffset.dx;
+    t.y = p.y - _cortarState.arrastarOffset.dy;
+    redesenharComTextoPendente();
+    return;
+  }
   if (!_cortarState?.desenhando) return;
   const { modo, canvas, ctx } = _cortarState;
   const p = coordenadaCanvas(e);
@@ -2659,6 +2757,11 @@ function moverAcaoEdicao(e) {
 }
 
 function finalizarAcaoEdicao(e) {
+  if (_cortarState?.arrastandoTexto) {
+    _cortarState.arrastandoTexto = false;
+    _cortarState.desenhando = false;
+    return;
+  }
   if (!_cortarState?.desenhando) return;
   const { modo } = _cortarState;
   _cortarState.desenhando = false;
@@ -2676,6 +2779,7 @@ function finalizarAcaoEdicao(e) {
 function cortarSelecaoAtual() {
   const sel = _cortarState?.selecao;
   if (!sel || sel.width < 5 || sel.height < 5) return;
+  if (_cortarState.textoPendente) confirmarTextoPendente();
   const canvas = _cortarState.canvas;
   const rect = canvas.getBoundingClientRect();
   const scaleX = canvas.width / rect.width, scaleY = canvas.height / rect.height;
@@ -2692,7 +2796,15 @@ function cortarSelecaoAtual() {
 }
 
 async function desfazerEdicao() {
-  if (!_cortarState || _cortarState.historico.length <= 1) return;
+  if (!_cortarState) return;
+  if (_cortarState.textoPendente) {
+    _cortarState.ctx.putImageData(_cortarState.snapshotBase, 0, 0);
+    _cortarState.textoPendente = null;
+    _cortarState.snapshotBase = null;
+    document.getElementById('btn-confirmar-texto').style.display = 'none';
+    return;
+  }
+  if (_cortarState.historico.length <= 1) return;
   _cortarState.historico.pop();
   const dataUrl = _cortarState.historico[_cortarState.historico.length - 1];
   const img = new Image();
@@ -2707,6 +2819,7 @@ async function desfazerEdicao() {
 
 async function aplicarCorteImagem() {
   if (!_cortarState) return;
+  if (_cortarState.textoPendente) confirmarTextoPendente();
   const canvas = _cortarState.canvas;
   const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
   const file = new File([blob], `print-editado-${Date.now()}.png`, { type: 'image/png' });

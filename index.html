@@ -49,9 +49,11 @@
     .so-impressao { display: none; }
     @page { margin: 12mm; }
     @media print {
-      html, body { width: auto !important; }
+      html, body { width: auto !important; height: auto !important; overflow: visible !important; }
       .sidebar, .topbar, .no-print { display: none !important; }
-      .content { padding: 0 !important; width: auto !important; }
+      .app { display: block !important; height: auto !important; overflow: visible !important; }
+      .main { display: block !important; height: auto !important; overflow: visible !important; }
+      .content { padding: 0 !important; width: auto !important; height: auto !important; overflow: visible !important; }
       body { background: #fff !important; }
       .so-impressao { display: block !important; }
       .passo-processo { page-break-inside: avoid; break-inside: avoid; }

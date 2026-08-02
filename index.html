@@ -292,8 +292,15 @@ async function pagDashboard() {
   const clienteObs = await api('cliente_obrigacoes?select=cliente_id,obrigacao_id');
   const demandasFeitas = await api(`demandas?mes=eq.${mesSel}&ano=eq.${anoSel}&feito=eq.true&select=cliente_id,obrigacao_id`);
   const feitoSet = new Set(demandasFeitas.map(d => d.cliente_id+'-'+d.obrigacao_id));
-  const totalDemandas = clienteObs.length;
-  const feitos = clienteObs.filter(co => feitoSet.has(co.cliente_id+'-'+co.obrigacao_id)).length;
+  const clientesPorObrigacao = {};
+  clienteObs.forEach(co => {
+    (clientesPorObrigacao[co.obrigacao_id] = clientesPorObrigacao[co.obrigacao_id] || []).push(co.cliente_id);
+  });
+  const obrigacoesComCliente = Object.keys(clientesPorObrigacao);
+  const totalDemandas = obrigacoesComCliente.length;
+  const feitos = obrigacoesComCliente.filter(obId =>
+    clientesPorObrigacao[obId].every(clId => feitoSet.has(clId+'-'+obId))
+  ).length;
   const pendentes = totalDemandas - feitos;
   const pctFeito = totalDemandas > 0 ? Math.round(feitos/totalDemandas*100) : 0;
   const pctPendente = totalDemandas > 0 ? 100 - pctFeito : 0;

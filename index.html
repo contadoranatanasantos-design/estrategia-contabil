@@ -1023,6 +1023,20 @@ function formatarMoeda(valor) {
   return (Number(valor)||0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function aplicarMascaraMoeda(input) {
+  const digitos = input.value.replace(/\D/g, '');
+  if (!digitos) { input.value = ''; return; }
+  const numero = parseInt(digitos, 10) / 100;
+  input.value = formatarMoeda(numero);
+}
+
+function valorMascaraParaNumero(texto) {
+  if (!texto) return null;
+  const limpo = texto.replace(/\./g, '').replace(',', '.');
+  const numero = parseFloat(limpo);
+  return isNaN(numero) ? null : numero;
+}
+
 async function verDemanda(obId, obNome) {
   const clienteObs = await api(`cliente_obrigacoes?obrigacao_id=eq.${obId}&select=cliente_id,clientes(id,razao_social)`);
   const demandas = await api(`demandas?obrigacao_id=eq.${obId}&mes=eq.${mesSel}&ano=eq.${anoSel}`);
@@ -1072,7 +1086,7 @@ async function verDemanda(obId, obNome) {
                 ${notasCliente.length <= 1 ? `
                 <div class="no-print" style="display:flex;gap:4px;align-items:center">
                   <input type="text" class="nf-inline-numero" data-nota-id="${notasCliente[0]?.id||''}" value="${notasCliente[0]?.numero_nf||''}" placeholder="Nº NF" onblur="salvarNotaInline(this,'${co.cliente_id}','${obId}')" style="width:70px;height:30px;padding:0 6px;border-radius:6px;border:1.5px solid #E5E7EB;font-size:12px">
-                  <input type="number" step="0.01" class="nf-inline-valor" data-nota-id="${notasCliente[0]?.id||''}" value="${notasCliente[0]?.valor_nf??''}" placeholder="Valor" onblur="salvarNotaInline(this,'${co.cliente_id}','${obId}')" style="width:80px;height:30px;padding:0 6px;border-radius:6px;border:1.5px solid #E5E7EB;font-size:12px">
+                  <input type="text" inputmode="numeric" class="nf-inline-valor" data-nota-id="${notasCliente[0]?.id||''}" value="${notasCliente[0]?.valor_nf!=null?formatarMoeda(notasCliente[0].valor_nf):''}" placeholder="R$ 0,00" oninput="aplicarMascaraMoeda(this)" onblur="salvarNotaInline(this,'${co.cliente_id}','${obId}')" style="width:90px;height:30px;padding:0 6px;border-radius:6px;border:1.5px solid #E5E7EB;font-size:12px">
                   <button class="btn btn-sm" title="Mais de uma nota pra esse cliente?" onclick="abrirNotasCliente('${co.cliente_id}','${obId}','${nomeEsc}','${obNome.replace(/'/g,"\\'")}')"><i class="ti ti-plus"></i></button>
                 </div>` : `
                 <button class="btn btn-sm no-print" onclick="abrirNotasCliente('${co.cliente_id}','${obId}','${nomeEsc}','${obNome.replace(/'/g,"\\'")}')"><i class="ti ti-file-invoice"></i> ${notasCliente.length} nota(s) · R$ ${formatarMoeda(totalCliente)}</button>`}
@@ -1102,7 +1116,7 @@ async function verDemanda(obId, obNome) {
         <div id="lista-notas-cliente" style="max-height:240px;overflow-y:auto;margin-bottom:12px"></div>
         <div style="display:flex;gap:8px;align-items:flex-end;padding-top:12px;border-top:1px solid var(--border)">
           <div class="field" style="flex:1;margin-bottom:0"><label style="font-size:11px">Nº da NF</label><input id="novo-nf-numero" placeholder="Ex: 1234"></div>
-          <div class="field" style="width:120px;margin-bottom:0"><label style="font-size:11px">Valor (R$)</label><input id="novo-nf-valor" type="number" step="0.01" placeholder="0,00"></div>
+          <div class="field" style="width:120px;margin-bottom:0"><label style="font-size:11px">Valor (R$)</label><input id="novo-nf-valor" type="text" inputmode="numeric" oninput="aplicarMascaraMoeda(this)" placeholder="R$ 0,00"></div>
           <button class="btn btn-navy" style="height:38px" onclick="adicionarNotaCliente()"><i class="ti ti-plus"></i></button>
         </div>
         <div style="text-align:right;font-weight:600;color:var(--navy);margin-top:10px" id="total-notas-cliente"></div>
@@ -1119,7 +1133,7 @@ async function salvarNotaInline(inputEl, clienteId, obId) {
   const inputValor = linha.querySelector('.nf-inline-valor');
   const notaId = inputEl.dataset.notaId;
   const numero = inputNumero.value.trim();
-  const valor = inputValor.value !== '' ? parseFloat(inputValor.value) : null;
+  const valor = valorMascaraParaNumero(inputValor.value);
   if (!numero && valor === null) return;
   if (notaId) {
     await api(`demanda_notas?id=eq.${notaId}`, 'PATCH', { numero_nf: numero||null, valor_nf: valor });
@@ -1156,10 +1170,10 @@ function renderListaNotasCliente() {
 
 async function adicionarNotaCliente() {
   const numero = document.getElementById('novo-nf-numero').value.trim();
-  const valorInput = document.getElementById('novo-nf-valor').value;
-  if (!numero && !valorInput) { toast('Preencha ao menos o número ou o valor', 'error'); return; }
+  const valor = valorMascaraParaNumero(document.getElementById('novo-nf-valor').value);
+  if (!numero && valor === null) { toast('Preencha ao menos o número ou o valor', 'error'); return; }
   const { clienteId, obId } = window._notasClienteState;
-  const nova = await api('demanda_notas', 'POST', { cliente_id: clienteId, obrigacao_id: obId, mes: mesSel, ano: anoSel, numero_nf: numero||null, valor_nf: valorInput?parseFloat(valorInput):null });
+  const nova = await api('demanda_notas', 'POST', { cliente_id: clienteId, obrigacao_id: obId, mes: mesSel, ano: anoSel, numero_nf: numero||null, valor_nf: valor });
   window._notasClienteState.notas.push(nova[0]);
   renderListaNotasCliente();
   document.getElementById('novo-nf-numero').value = '';

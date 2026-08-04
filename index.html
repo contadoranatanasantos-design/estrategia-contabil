@@ -1069,7 +1069,13 @@ async function verDemanda(obId, obNome) {
               <td style="font-weight:500">${co.clientes?.razao_social||'—'}</td>
               <td><span class="badge ${feito?'badge-success':'badge-warning'}">${feito?'Concluído':'Pendente'}</span></td>
               <td>
-                <button class="btn btn-sm no-print" onclick="abrirNotasCliente('${co.cliente_id}','${obId}','${nomeEsc}','${obNome.replace(/'/g,"\\'")}')"><i class="ti ti-file-invoice"></i> ${notasCliente.length>0?`${notasCliente.length} nota(s) · R$ ${formatarMoeda(totalCliente)}`:'Lançar NF'}</button>
+                ${notasCliente.length <= 1 ? `
+                <div class="no-print" style="display:flex;gap:4px;align-items:center">
+                  <input type="text" class="nf-inline-numero" data-nota-id="${notasCliente[0]?.id||''}" value="${notasCliente[0]?.numero_nf||''}" placeholder="Nº NF" onblur="salvarNotaInline(this,'${co.cliente_id}','${obId}')" style="width:70px;height:30px;padding:0 6px;border-radius:6px;border:1.5px solid #E5E7EB;font-size:12px">
+                  <input type="number" step="0.01" class="nf-inline-valor" data-nota-id="${notasCliente[0]?.id||''}" value="${notasCliente[0]?.valor_nf??''}" placeholder="Valor" onblur="salvarNotaInline(this,'${co.cliente_id}','${obId}')" style="width:80px;height:30px;padding:0 6px;border-radius:6px;border:1.5px solid #E5E7EB;font-size:12px">
+                  <button class="btn btn-sm" title="Mais de uma nota pra esse cliente?" onclick="abrirNotasCliente('${co.cliente_id}','${obId}','${nomeEsc}','${obNome.replace(/'/g,"\\'")}')"><i class="ti ti-plus"></i></button>
+                </div>` : `
+                <button class="btn btn-sm no-print" onclick="abrirNotasCliente('${co.cliente_id}','${obId}','${nomeEsc}','${obNome.replace(/'/g,"\\'")}')"><i class="ti ti-file-invoice"></i> ${notasCliente.length} nota(s) · R$ ${formatarMoeda(totalCliente)}</button>`}
                 <div class="so-impressao">${notasCliente.length===0?'—':notasCliente.map(n=>`NF ${n.numero_nf||'—'} - R$ ${formatarMoeda(n.valor_nf)}`).join('<br>')}</div>
               </td>
               <td class="no-print"><div style="display:flex;gap:6px">
@@ -1105,6 +1111,24 @@ async function verDemanda(obId, obNome) {
         </div>
       </div>
     </div>`;
+}
+
+async function salvarNotaInline(inputEl, clienteId, obId) {
+  const linha = inputEl.closest('tr');
+  const inputNumero = linha.querySelector('.nf-inline-numero');
+  const inputValor = linha.querySelector('.nf-inline-valor');
+  const notaId = inputEl.dataset.notaId;
+  const numero = inputNumero.value.trim();
+  const valor = inputValor.value !== '' ? parseFloat(inputValor.value) : null;
+  if (!numero && valor === null) return;
+  if (notaId) {
+    await api(`demanda_notas?id=eq.${notaId}`, 'PATCH', { numero_nf: numero||null, valor_nf: valor });
+  } else {
+    const nova = await api('demanda_notas', 'POST', { cliente_id: clienteId, obrigacao_id: obId, mes: mesSel, ano: anoSel, numero_nf: numero||null, valor_nf: valor });
+    inputNumero.dataset.notaId = nova[0].id;
+    inputValor.dataset.notaId = nova[0].id;
+  }
+  toast('Salvo!', 'success');
 }
 
 async function abrirNotasCliente(clienteId, obId, clienteNome, obNome) {

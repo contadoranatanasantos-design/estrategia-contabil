@@ -1025,9 +1025,8 @@ function formatarMoeda(valor) {
 
 function aplicarMascaraMoeda(input) {
   const digitos = input.value.replace(/\D/g, '');
-  if (!digitos) { input.value = ''; return; }
-  const numero = parseInt(digitos, 10) / 100;
-  input.value = formatarMoeda(numero);
+  const numero = digitos ? parseInt(digitos, 10) / 100 : 0;
+  input.value = numero === 0 ? '' : formatarMoeda(numero);
 }
 
 function valorMascaraParaNumero(texto) {
@@ -1086,7 +1085,7 @@ async function verDemanda(obId, obNome) {
                 ${notasCliente.length <= 1 ? `
                 <div class="no-print" style="display:flex;gap:4px;align-items:center">
                   <input type="text" class="nf-inline-numero" data-nota-id="${notasCliente[0]?.id||''}" value="${notasCliente[0]?.numero_nf||''}" placeholder="Nº NF" onblur="salvarNotaInline(this,'${co.cliente_id}','${obId}')" style="width:70px;height:30px;padding:0 6px;border-radius:6px;border:1.5px solid #E5E7EB;font-size:12px">
-                  <input type="text" inputmode="numeric" class="nf-inline-valor" data-nota-id="${notasCliente[0]?.id||''}" value="${notasCliente[0]?.valor_nf!=null?formatarMoeda(notasCliente[0].valor_nf):''}" placeholder="R$ 0,00" oninput="aplicarMascaraMoeda(this)" onblur="salvarNotaInline(this,'${co.cliente_id}','${obId}')" style="width:90px;height:30px;padding:0 6px;border-radius:6px;border:1.5px solid #E5E7EB;font-size:12px">
+                  <input type="text" inputmode="numeric" class="nf-inline-valor" data-nota-id="${notasCliente[0]?.id||''}" value="${notasCliente[0]?.valor_nf!=null?formatarMoeda(notasCliente[0].valor_nf):''}" placeholder="Valor" oninput="aplicarMascaraMoeda(this)" onblur="salvarNotaInline(this,'${co.cliente_id}','${obId}')" style="width:90px;height:30px;padding:0 6px;border-radius:6px;border:1.5px solid #E5E7EB;font-size:12px">
                   <button class="btn btn-sm" title="Mais de uma nota pra esse cliente?" onclick="abrirNotasCliente('${co.cliente_id}','${obId}','${nomeEsc}','${obNome.replace(/'/g,"\\'")}')"><i class="ti ti-plus"></i></button>
                 </div>` : `
                 <button class="btn btn-sm no-print" onclick="abrirNotasCliente('${co.cliente_id}','${obId}','${nomeEsc}','${obNome.replace(/'/g,"\\'")}')"><i class="ti ti-file-invoice"></i> ${notasCliente.length} nota(s) · R$ ${formatarMoeda(totalCliente)}</button>`}
@@ -1134,7 +1133,15 @@ async function salvarNotaInline(inputEl, clienteId, obId) {
   const notaId = inputEl.dataset.notaId;
   const numero = inputNumero.value.trim();
   const valor = valorMascaraParaNumero(inputValor.value);
-  if (!numero && valor === null) return;
+  if (!numero && valor === null) {
+    if (notaId) {
+      await api(`demanda_notas?id=eq.${notaId}`, 'DELETE');
+      inputNumero.dataset.notaId = '';
+      inputValor.dataset.notaId = '';
+      toast('Nota removida!', 'success');
+    }
+    return;
+  }
   if (notaId) {
     await api(`demanda_notas?id=eq.${notaId}`, 'PATCH', { numero_nf: numero||null, valor_nf: valor });
   } else {

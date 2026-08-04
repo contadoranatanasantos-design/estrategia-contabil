@@ -1019,9 +1019,16 @@ function modalObrigHTML() {
     </div>`;
 }
 
+function formatarMoeda(valor) {
+  return (Number(valor)||0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 async function verDemanda(obId, obNome) {
   const clienteObs = await api(`cliente_obrigacoes?obrigacao_id=eq.${obId}&select=cliente_id,clientes(id,razao_social)`);
   const demandas = await api(`demandas?obrigacao_id=eq.${obId}&mes=eq.${mesSel}&ano=eq.${anoSel}`);
+  const notas = await api(`demanda_notas?obrigacao_id=eq.${obId}&mes=eq.${mesSel}&ano=eq.${anoSel}&order=created_at`);
+  const notasPorCliente = {};
+  notas.forEach(n => { (notasPorCliente[n.cliente_id] = notasPorCliente[n.cliente_id] || []).push(n); });
   const todosClientes = await api('clientes?select=id,razao_social&status=eq.Ativo&order=razao_social');
   const vinculadosIds = new Set(clienteObs.map(co => co.cliente_id));
   const semObrigacao = todosClientes.filter(cl => !vinculadosIds.has(cl.id));
@@ -1050,14 +1057,21 @@ async function verDemanda(obId, obNome) {
       </div>
       <div style="padding:12px 20px;font-weight:600;color:var(--navy);border-top:1px solid var(--border)">✅ Empresas COM esta obrigação (${total})</div>
       <table class="table">
-        <thead><tr><th>Cliente</th><th>Status</th><th class="no-print">Ação</th></tr></thead>
+        <thead><tr><th>Cliente</th><th>Status</th><th>Notas Fiscais</th><th class="no-print">Ação</th></tr></thead>
         <tbody>
-          ${total === 0 ? '<tr><td colspan="3"><div class="empty-state"><i class="ti ti-users"></i>Nenhum cliente tem esta obrigação.</div></td></tr>' :
+          ${total === 0 ? '<tr><td colspan="4"><div class="empty-state"><i class="ti ti-users"></i>Nenhum cliente tem esta obrigação.</div></td></tr>' :
           clienteObs.map(co => {
             const feito = feitosIds.includes(co.cliente_id);
+            const notasCliente = notasPorCliente[co.cliente_id] || [];
+            const totalCliente = notasCliente.reduce((s,n)=>s+(Number(n.valor_nf)||0),0);
+            const nomeEsc = (co.clientes?.razao_social||'').replace(/'/g,"\\'");
             return `<tr>
               <td style="font-weight:500">${co.clientes?.razao_social||'—'}</td>
               <td><span class="badge ${feito?'badge-success':'badge-warning'}">${feito?'Concluído':'Pendente'}</span></td>
+              <td>
+                <button class="btn btn-sm no-print" onclick="abrirNotasCliente('${co.cliente_id}','${obId}','${nomeEsc}','${obNome.replace(/'/g,"\\'")}')"><i class="ti ti-file-invoice"></i> ${notasCliente.length>0?`${notasCliente.length} nota(s) · R$ ${formatarMoeda(totalCliente)}`:'Lançar NF'}</button>
+                <div class="so-impressao">${notasCliente.length===0?'—':notasCliente.map(n=>`NF ${n.numero_nf||'—'} - R$ ${formatarMoeda(n.valor_nf)}`).join('<br>')}</div>
+              </td>
               <td class="no-print"><div style="display:flex;gap:6px">
                 <button class="btn btn-sm ${feito?'btn-success':''}" onclick="toggleDemanda('${co.cliente_id}','${obId}',true,'${obNome}')"><i class="ti ti-check"></i> Feito</button>
                 <button class="btn btn-sm ${!feito?'btn-warning':''}" onclick="toggleDemanda('${co.cliente_id}','${obId}',false,'${obNome}')"><i class="ti ti-clock"></i> Pendente</button>
@@ -1074,7 +1088,72 @@ async function verDemanda(obId, obNome) {
           semObrigacao.map(cl => `<tr><td style="font-weight:500">${cl.razao_social}</td></tr>`).join('')}
         </tbody>
       </table>
+    </div>
+    <div class="overlay no-print" id="ov-notas-cliente">
+      <div class="modal" style="width:420px">
+        <div class="modal-title">Notas fiscais — <span id="notas-cliente-titulo"></span></div>
+        <div class="modal-sub">${meses[mesSel]} ${anoSel}</div>
+        <div id="lista-notas-cliente" style="max-height:240px;overflow-y:auto;margin-bottom:12px"></div>
+        <div style="display:flex;gap:8px;align-items:flex-end;padding-top:12px;border-top:1px solid var(--border)">
+          <div class="field" style="flex:1;margin-bottom:0"><label style="font-size:11px">Nº da NF</label><input id="novo-nf-numero" placeholder="Ex: 1234"></div>
+          <div class="field" style="width:120px;margin-bottom:0"><label style="font-size:11px">Valor (R$)</label><input id="novo-nf-valor" type="number" step="0.01" placeholder="0,00"></div>
+          <button class="btn btn-navy" style="height:38px" onclick="adicionarNotaCliente()"><i class="ti ti-plus"></i></button>
+        </div>
+        <div style="text-align:right;font-weight:600;color:var(--navy);margin-top:10px" id="total-notas-cliente"></div>
+        <div class="modal-footer">
+          <button class="btn btn-navy" onclick="fecharNotasCliente()">Fechar</button>
+        </div>
+      </div>
     </div>`;
+}
+
+async function abrirNotasCliente(clienteId, obId, clienteNome, obNome) {
+  const notas = await api(`demanda_notas?cliente_id=eq.${clienteId}&obrigacao_id=eq.${obId}&mes=eq.${mesSel}&ano=eq.${anoSel}&order=created_at`);
+  window._notasClienteState = { clienteId, obId, obNome, notas };
+  document.getElementById('notas-cliente-titulo').innerText = clienteNome;
+  document.getElementById('novo-nf-numero').value = '';
+  document.getElementById('novo-nf-valor').value = '';
+  renderListaNotasCliente();
+  document.getElementById('ov-notas-cliente').classList.add('show');
+}
+
+function renderListaNotasCliente() {
+  const { notas } = window._notasClienteState;
+  const total = notas.reduce((s,n)=>s+(Number(n.valor_nf)||0),0);
+  document.getElementById('lista-notas-cliente').innerHTML = notas.length === 0
+    ? '<div style="text-align:center;color:#9CA3AF;padding:12px;font-size:13px">Nenhuma nota lançada ainda.</div>'
+    : notas.map(n => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">
+        <div style="font-size:13px">NF <b>${n.numero_nf||'—'}</b> — R$ ${formatarMoeda(n.valor_nf)}</div>
+        <button class="btn btn-sm btn-danger" onclick="removerNotaCliente('${n.id}')"><i class="ti ti-trash"></i></button>
+      </div>`).join('');
+  document.getElementById('total-notas-cliente').innerText = 'Total: R$ ' + formatarMoeda(total);
+}
+
+async function adicionarNotaCliente() {
+  const numero = document.getElementById('novo-nf-numero').value.trim();
+  const valorInput = document.getElementById('novo-nf-valor').value;
+  if (!numero && !valorInput) { toast('Preencha ao menos o número ou o valor', 'error'); return; }
+  const { clienteId, obId } = window._notasClienteState;
+  const nova = await api('demanda_notas', 'POST', { cliente_id: clienteId, obrigacao_id: obId, mes: mesSel, ano: anoSel, numero_nf: numero||null, valor_nf: valorInput?parseFloat(valorInput):null });
+  window._notasClienteState.notas.push(nova[0]);
+  renderListaNotasCliente();
+  document.getElementById('novo-nf-numero').value = '';
+  document.getElementById('novo-nf-valor').value = '';
+  document.getElementById('novo-nf-numero').focus();
+}
+
+async function removerNotaCliente(notaId) {
+  if (!confirm('Remover essa nota?')) return;
+  await api(`demanda_notas?id=eq.${notaId}`, 'DELETE');
+  window._notasClienteState.notas = window._notasClienteState.notas.filter(n=>n.id!==notaId);
+  renderListaNotasCliente();
+}
+
+function fecharNotasCliente() {
+  const { obId, obNome } = window._notasClienteState;
+  fecharModal('ov-notas-cliente');
+  verDemanda(obId, obNome);
 }
 
 async function toggleDemanda(clienteId, obId, feito, obNome) {

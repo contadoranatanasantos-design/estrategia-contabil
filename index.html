@@ -2563,6 +2563,11 @@ async function verProcesso(processoId) {
           <div style="display:flex;gap:5px;align-items:center;margin-left:6px">
             ${['#E02424','#2563EB','#F2C230','#16A34A','#111827'].map(c => `<div onclick="definirCorEdicao('${c}')" id="swatch-${c}" style="width:20px;height:20px;border-radius:50%;background:${c};cursor:pointer;box-shadow:0 0 0 1px #E5E7EB"></div>`).join('')}
           </div>
+          <select id="sel-tamanho-texto" onchange="definirTamanhoTexto(this.value)" style="font-size:12px;padding:5px 8px;border-radius:6px;border:1.5px solid #E5E7EB;font-family:inherit">
+            <option value="0.014">Texto pequeno</option>
+            <option value="0.022" selected>Texto médio</option>
+            <option value="0.034">Texto grande</option>
+          </select>
           <button class="btn btn-sm" onclick="desfazerEdicao()"><i class="ti ti-arrow-back-up"></i> Desfazer</button>
           <button class="btn btn-sm btn-navy" id="btn-cortar-selecao" style="display:none" onclick="cortarSelecaoAtual()"><i class="ti ti-check"></i> Cortar seleção</button>
           <button class="btn btn-sm btn-navy" id="btn-confirmar-texto" style="display:none" onclick="confirmarTextoPendente()"><i class="ti ti-check"></i> Confirmar posição</button>
@@ -2630,14 +2635,20 @@ async function abrirCortarImagem(imagemId, processoId, url) {
   URL.revokeObjectURL(objectUrl);
   _cortarState = {
     imagemId, processoId, canvas, ctx,
-    modo: 'cortar', cor: CORES_EDICAO[0],
+    modo: 'cortar', cor: CORES_EDICAO[0], tamanhoTexto: 0.022,
     historico: [canvas.toDataURL()],
     desenhando: false, inicio: null, inicioTela: null, selecao: null, snapshotAtual: null,
     textoPendente: null, arrastandoTexto: false, arrastarOffset: null, snapshotBase: null
   };
   definirModoEdicao('cortar');
   definirCorEdicao(CORES_EDICAO[0]);
+  document.getElementById('sel-tamanho-texto').value = '0.022';
   document.getElementById('ov-cortar-imagem').classList.add('show');
+}
+
+function definirTamanhoTexto(valor) {
+  if (!_cortarState) return;
+  _cortarState.tamanhoTexto = parseFloat(valor);
 }
 
 function fecharCortarImagem() {
@@ -2691,19 +2702,54 @@ function salvarHistoricoEdicao() {
   if (_cortarState.historico.length > 20) _cortarState.historico.shift();
 }
 
-function medirTextoPendente(ctx, t) {
+function quebrarLinhasTexto(ctx, texto, larguraMax) {
+  const palavras = texto.split(/\s+/).filter(Boolean);
+  const linhas = [];
+  let linhaAtual = '';
+  for (const palavra of palavras) {
+    const tentativa = linhaAtual ? linhaAtual + ' ' + palavra : palavra;
+    if (linhaAtual && ctx.measureText(tentativa).width > larguraMax) {
+      linhas.push(linhaAtual);
+      linhaAtual = palavra;
+    } else {
+      linhaAtual = tentativa;
+    }
+  }
+  if (linhaAtual) linhas.push(linhaAtual);
+  return linhas.length ? linhas : [''];
+}
+
+function caixaTextoGeometria(ctx, t) {
   ctx.font = `600 ${t.tamanho}px Arial`;
-  return ctx.measureText(t.texto).width;
+  const larguraMax = Math.max(150, ctx.canvas.width * 0.5);
+  const linhas = quebrarLinhasTexto(ctx, t.texto, larguraMax);
+  const alturaLinha = t.tamanho * 1.3;
+  const largura = Math.max(...linhas.map(l => ctx.measureText(l).width));
+  const padX = Math.round(t.tamanho * 0.4);
+  const padY = Math.round(t.tamanho * 0.3);
+  const boxX = t.x - padX;
+  const boxY = t.y - t.tamanho - padY;
+  const boxW = largura + padX * 2;
+  const boxH = alturaLinha * linhas.length + padY * 2;
+  return { linhas, alturaLinha, boxX, boxY, boxW, boxH };
+}
+
+function desenharCaixaTexto(ctx, t) {
+  const g = caixaTextoGeometria(ctx, t);
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(g.boxX, g.boxY, g.boxW, g.boxH);
+  ctx.strokeStyle = t.cor;
+  ctx.lineWidth = Math.max(2, Math.round(t.tamanho * 0.08));
+  ctx.strokeRect(g.boxX, g.boxY, g.boxW, g.boxH);
+  ctx.font = `600 ${t.tamanho}px Arial`;
+  ctx.fillStyle = t.cor;
+  g.linhas.forEach((linha, i) => ctx.fillText(linha, t.x, t.y + i * g.alturaLinha));
 }
 
 function redesenharComTextoPendente() {
   const { ctx, snapshotBase, textoPendente: t } = _cortarState;
   if (snapshotBase) ctx.putImageData(snapshotBase, 0, 0);
-  if (t) {
-    ctx.font = `600 ${t.tamanho}px Arial`;
-    ctx.fillStyle = t.cor;
-    ctx.fillText(t.texto, t.x, t.y);
-  }
+  if (t) desenharCaixaTexto(ctx, t);
 }
 
 function confirmarTextoPendente() {
@@ -2741,8 +2787,8 @@ function iniciarAcaoEdicao(e) {
   } else if (modo === 'texto') {
     const pend = _cortarState.textoPendente;
     if (pend) {
-      const largura = medirTextoPendente(ctx, pend);
-      const dentro = p.x >= pend.x - 10 && p.x <= pend.x + largura + 10 && p.y >= pend.y - pend.tamanho - 6 && p.y <= pend.y + 10;
+      const g = caixaTextoGeometria(ctx, pend);
+      const dentro = p.x >= g.boxX && p.x <= g.boxX + g.boxW && p.y >= g.boxY && p.y <= g.boxY + g.boxH;
       if (dentro) {
         _cortarState.desenhando = true;
         _cortarState.arrastandoTexto = true;
@@ -2754,7 +2800,7 @@ function iniciarAcaoEdicao(e) {
     const texto = prompt('Digite a observação:');
     if (texto) {
       _cortarState.snapshotBase = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const tamanho = Math.max(18, Math.round(canvas.width * 0.022));
+      const tamanho = Math.max(14, Math.round(canvas.width * _cortarState.tamanhoTexto));
       _cortarState.textoPendente = { texto, x: p.x, y: p.y, cor: _cortarState.cor, tamanho };
       redesenharComTextoPendente();
       document.getElementById('btn-confirmar-texto').style.display = 'inline-flex';

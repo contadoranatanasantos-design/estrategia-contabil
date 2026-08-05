@@ -1010,6 +1010,9 @@ function modalObrigHTML() {
           <div class="field"><label>Periodicidade</label><select id="ob-period"><option>Mensal</option><option>Anual</option></select></div>
           <div class="field"><label>Regime</label><select id="ob-regime"><option>Todos</option><option>MEI</option><option>Simples Nacional</option><option>LP / LR</option></select></div>
         </div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-primary);margin-bottom:16px;cursor:pointer">
+          <input type="checkbox" id="ob-precisa-nf"> Essa tarefa precisa registrar Nº da Nota Fiscal e valor (ex: Emissão de NFS-e)
+        </label>
         <div class="modal-footer">
           <input type="hidden" id="ob-id">
           <button class="btn" onclick="fecharModal('ov-obrig')">Cancelar</button>
@@ -1037,9 +1040,11 @@ function valorMascaraParaNumero(texto) {
 }
 
 async function verDemanda(obId, obNome) {
+  const obDados = (await api(`obrigacoes?id=eq.${obId}&select=precisa_nf`))[0];
+  const precisaNf = !!obDados?.precisa_nf;
   const clienteObs = await api(`cliente_obrigacoes?obrigacao_id=eq.${obId}&select=cliente_id,clientes(id,razao_social)`);
   const demandas = await api(`demandas?obrigacao_id=eq.${obId}&mes=eq.${mesSel}&ano=eq.${anoSel}`);
-  const notas = await api(`demanda_notas?obrigacao_id=eq.${obId}&mes=eq.${mesSel}&ano=eq.${anoSel}&order=created_at`);
+  const notas = precisaNf ? await api(`demanda_notas?obrigacao_id=eq.${obId}&mes=eq.${mesSel}&ano=eq.${anoSel}&order=created_at`) : [];
   const notasPorCliente = {};
   notas.forEach(n => { (notasPorCliente[n.cliente_id] = notasPorCliente[n.cliente_id] || []).push(n); });
   const todosClientes = await api('clientes?select=id,razao_social&status=eq.Ativo&order=razao_social');
@@ -1070,9 +1075,9 @@ async function verDemanda(obId, obNome) {
       </div>
       <div style="padding:12px 20px;font-weight:600;color:var(--navy);border-top:1px solid var(--border)">✅ Empresas COM esta obrigação (${total})</div>
       <table class="table">
-        <thead><tr><th>Cliente</th><th>Status</th><th>Notas Fiscais</th><th class="no-print">Ação</th></tr></thead>
+        <thead><tr><th>Cliente</th><th>Status</th>${precisaNf?'<th>Notas Fiscais</th>':''}<th class="no-print">Ação</th></tr></thead>
         <tbody>
-          ${total === 0 ? '<tr><td colspan="4"><div class="empty-state"><i class="ti ti-users"></i>Nenhum cliente tem esta obrigação.</div></td></tr>' :
+          ${total === 0 ? `<tr><td colspan="${precisaNf?4:3}"><div class="empty-state"><i class="ti ti-users"></i>Nenhum cliente tem esta obrigação.</div></td></tr>` :
           clienteObs.map(co => {
             const feito = feitosIds.includes(co.cliente_id);
             const notasCliente = notasPorCliente[co.cliente_id] || [];
@@ -1081,7 +1086,7 @@ async function verDemanda(obId, obNome) {
             return `<tr>
               <td style="font-weight:500">${co.clientes?.razao_social||'—'}</td>
               <td><span class="badge ${feito?'badge-success':'badge-warning'}">${feito?'Concluído':'Pendente'}</span></td>
-              <td>
+              ${precisaNf ? `<td>
                 ${notasCliente.length <= 1 ? `
                 <div class="no-print" style="display:flex;gap:4px;align-items:center">
                   <input type="text" class="nf-inline-numero" data-nota-id="${notasCliente[0]?.id||''}" value="${notasCliente[0]?.numero_nf||''}" placeholder="Nº NF" onblur="salvarNotaInline(this,'${co.cliente_id}','${obId}')" style="width:70px;height:30px;padding:0 6px;border-radius:6px;border:1.5px solid #E5E7EB;font-size:12px">
@@ -1090,7 +1095,7 @@ async function verDemanda(obId, obNome) {
                 </div>` : `
                 <button class="btn btn-sm no-print" onclick="abrirNotasCliente('${co.cliente_id}','${obId}','${nomeEsc}','${obNome.replace(/'/g,"\\'")}')"><i class="ti ti-file-invoice"></i> ${notasCliente.length} nota(s) · R$ ${formatarMoeda(totalCliente)}</button>`}
                 <div class="so-impressao">${notasCliente.length===0?'—':notasCliente.map(n=>`NF ${n.numero_nf||'—'} - R$ ${formatarMoeda(n.valor_nf)}`).join('<br>')}</div>
-              </td>
+              </td>` : ''}
               <td class="no-print"><div style="display:flex;gap:6px">
                 <button class="btn btn-sm ${feito?'btn-success':''}" onclick="toggleDemanda('${co.cliente_id}','${obId}',true,'${obNome}')"><i class="ti ti-check"></i> Feito</button>
                 <button class="btn btn-sm ${!feito?'btn-warning':''}" onclick="toggleDemanda('${co.cliente_id}','${obId}',false,'${obNome}')"><i class="ti ti-clock"></i> Pendente</button>
@@ -3215,6 +3220,7 @@ function abrirModalObrig() {
   ['ob-nome','ob-prazo'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('ob-period').value = 'Mensal';
   document.getElementById('ob-regime').value = 'Todos';
+  document.getElementById('ob-precisa-nf').checked = false;
   document.getElementById('ov-obrig').classList.add('show');
 }
 
@@ -3228,6 +3234,7 @@ async function editarObrig(id) {
   document.getElementById('ob-prazo').value = ob.prazo||'';
   document.getElementById('ob-period').value = ob.periodicidade||'Mensal';
   document.getElementById('ob-regime').value = ob.regime||'Todos';
+  document.getElementById('ob-precisa-nf').checked = !!ob.precisa_nf;
   document.getElementById('ov-obrig').classList.add('show');
 }
 
@@ -3235,7 +3242,7 @@ async function salvarObrig() {
   const id = document.getElementById('ob-id').value;
   const nome = document.getElementById('ob-nome').value.trim();
   if (!nome) { toast('Digite o nome da obrigação!','error'); return; }
-  const dados = { nome, prazo: document.getElementById('ob-prazo').value, periodicidade: document.getElementById('ob-period').value, regime: document.getElementById('ob-regime').value };
+  const dados = { nome, prazo: document.getElementById('ob-prazo').value, periodicidade: document.getElementById('ob-period').value, regime: document.getElementById('ob-regime').value, precisa_nf: document.getElementById('ob-precisa-nf').checked };
   if (id) { await api(`obrigacoes?id=eq.${id}`, 'PATCH', dados); } else { await api('obrigacoes','POST',dados); }
   fecharModal('ov-obrig');
   toast(id ? 'Obrigação atualizada!' : 'Obrigação cadastrada!','success');

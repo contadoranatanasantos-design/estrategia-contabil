@@ -139,7 +139,7 @@
       <div class="nav-item" onclick="ir('clientes',this)"><i class="ti ti-users"></i> Carteira de Clientes</div>
       <div class="nav-section">Operacional</div>
       <div class="nav-item" onclick="ir('demandas',this)"><i class="ti ti-checkbox"></i> Gestão de Tarefas</div>
-      <div class="nav-item" onclick="ir('empresas',this)"><i class="ti ti-building"></i> Controle Empresas</div>
+      <div class="nav-item" onclick="ir('empresas',this)"><i class="ti ti-building"></i> Gestão Documental</div>
       <div class="nav-item" onclick="ir('certificados',this)"><i class="ti ti-certificate"></i> Certificado Digital</div>
       <div class="nav-item" onclick="ir('processos',this)"><i class="ti ti-list-check"></i> Processos</div>
       <div class="nav-section">Financeiro</div>
@@ -272,7 +272,7 @@ document.getElementById('login-btn').onclick = login;
 document.getElementById('login-senha').onkeydown = e => { if(e.key==='Enter') login(); };
 
 // NAVEGAÇÃO
-const titulos = { dashboard:'Dashboard', clientes:'Carteira de Clientes', demandas:'Gestão de Tarefas', empresas:'Controle Empresas', certificados:'Certificado Digital', processos:'Processos', receber:'Contas a receber', pagar:'Contas a pagar', relatorios:'Relatórios', configuracoes:'Configurações' };
+const titulos = { dashboard:'Dashboard', clientes:'Carteira de Clientes', demandas:'Gestão de Tarefas', empresas:'Gestão Documental', certificados:'Certificado Digital', processos:'Processos', receber:'Contas a receber', pagar:'Contas a pagar', relatorios:'Relatórios', configuracoes:'Configurações' };
 function ir(pag, el) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   if (el) el.classList.add('active');
@@ -1395,7 +1395,7 @@ async function pagEmpresas() {
   const c = document.getElementById('content');
   c.innerHTML = `
     <div class="page-header">
-      <div class="page-header-title">Controle Empresas — ${meses[mesSel]} ${anoSel}</div>
+      <div class="page-header-title">Gestão Documental — ${meses[mesSel]} ${anoSel}</div>
       <div style="display:flex;gap:8px">
         <select onchange="mesSel=parseInt(this.value);pagEmpresas()" style="height:36px;padding:0 10px;border-radius:8px;border:1px solid #E5E7EB;font-size:13px">
           ${meses.map((m,i)=>`<option value="${i}" ${i===mesSel?'selected':''}>${m}</option>`).join('')}
@@ -1710,6 +1710,7 @@ async function verArquivos(clienteId, pathStr) {
             <td style="font-weight:500">${d.nome_arquivo}</td>
             <td>${new Date(d.created_at).toLocaleDateString('pt-BR')}</td>
             <td><div style="display:flex;gap:6px">
+              <button class="btn btn-sm" onclick="renomearDocumento(${i})"><i class="ti ti-edit"></i></button>
               <button class="btn btn-sm" onclick="baixarDocumento(${i})"><i class="ti ti-download"></i></button>
               <button class="btn btn-sm btn-danger" onclick="excluirDocumento(${i})"><i class="ti ti-trash"></i></button>
             </div></td>
@@ -1777,6 +1778,7 @@ async function verArquivosPastinha(clienteId, pathStr, subpasta) {
             <td style="font-weight:500">${d.nome_arquivo}</td>
             <td>${new Date(d.created_at).toLocaleDateString('pt-BR')}</td>
             <td><div style="display:flex;gap:6px">
+              <button class="btn btn-sm" onclick="renomearDocumento(${i})"><i class="ti ti-edit"></i></button>
               <button class="btn btn-sm" onclick="baixarDocumento(${i})"><i class="ti ti-download"></i></button>
               <button class="btn btn-sm btn-danger" onclick="excluirDocumento(${i})"><i class="ti ti-trash"></i></button>
             </div></td>
@@ -1861,6 +1863,18 @@ async function baixarTodosDocumentos(clienteId, pasta, subpasta, idsSelecionados
     } catch (e) { /* segue para o próximo arquivo */ }
   }
   return baixados;
+}
+
+async function renomearDocumento(i) {
+  const d = window._documentosAtual[i];
+  const novoNome = prompt('Novo nome do arquivo:', d.nome_arquivo);
+  if (!novoNome || novoNome.trim() === '' || novoNome === d.nome_arquivo) return;
+  await api(`documentos?id=eq.${d.id}`, 'PATCH', { nome_arquivo: novoNome.trim() });
+  toast('Arquivo renomeado!', 'success');
+  const caminho = caminhoPorTipo(d.tipo) || [d.tipo];
+  const pathStr = caminho.join(',');
+  if (d.subpasta) verArquivosPastinha(d.cliente_id, pathStr, d.subpasta);
+  else verArquivos(d.cliente_id, pathStr);
 }
 
 async function excluirDocumento(i) {

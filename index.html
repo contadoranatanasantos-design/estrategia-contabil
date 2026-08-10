@@ -266,7 +266,25 @@ async function login() {
 }
 
 function logout() { localStorage.removeItem('sb_token'); localStorage.removeItem('sb_refresh'); TOKEN = ''; document.getElementById('app').style.display='none'; document.getElementById('login-page').style.display='flex'; }
-function iniciar() { document.getElementById('login-page').style.display='none'; document.getElementById('app').style.display='flex'; ir('dashboard'); }
+function iniciar() {
+  document.getElementById('login-page').style.display='none';
+  document.getElementById('app').style.display='flex';
+  const params = new URLSearchParams(window.location.search);
+  const driveStatus = params.get('drive');
+  if (driveStatus) {
+    history.replaceState({}, '', window.location.pathname);
+    if (driveStatus === 'conectado') {
+      ir('configuracoes');
+      setTimeout(() => toast('Google Drive conectado com sucesso!', 'success'), 400);
+      return;
+    } else {
+      ir('configuracoes');
+      setTimeout(() => toast('Não foi possível conectar ao Google Drive. Tente novamente.', 'error'), 400);
+      return;
+    }
+  }
+  ir('dashboard');
+}
 
 document.getElementById('login-btn').onclick = login;
 document.getElementById('login-senha').onkeydown = e => { if(e.key==='Enter') login(); };
@@ -3215,6 +3233,13 @@ async function pagConfig() {
       </div>
     </div>
     <div class="card">
+      <div class="card-header"><div class="card-title">Integração com Google Drive</div></div>
+      <div class="card-body">
+        <div style="font-size:13px;color:#4B5563;margin-bottom:12px">Conecte uma pasta do seu Google Drive como "caixa de entrada" — o sistema busca os arquivos sozinho, identifica o cliente e organiza automaticamente.</div>
+        <div id="drive-status-area" style="font-size:13px;color:#9CA3AF">Verificando conexão...</div>
+      </div>
+    </div>
+    <div class="card">
       <div class="card-header"><div class="card-title">Segurança da conta</div></div>
       <div class="card-body">
         <div style="font-size:13px;color:#4B5563;margin-bottom:12px">Troque sua senha de acesso ao sistema periodicamente. Use uma senha forte, com letras, números e pelo menos 8 caracteres.</div>
@@ -3226,6 +3251,43 @@ async function pagConfig() {
       </div>
     </div>
     ${modalObrigHTML()}`;
+  verificarStatusDrive();
+}
+
+const GOOGLE_CLIENT_ID = '326344525710-9e0015at9ee9t55b2ec1gvdrudlpbtv3.apps.googleusercontent.com';
+
+function conectarGoogleDrive() {
+  const redirectUri = SB_URL + '/functions/v1/drive-oauth-callback';
+  const url = 'https://accounts.google.com/o/oauth2/v2/auth?' + new URLSearchParams({
+    client_id: GOOGLE_CLIENT_ID,
+    redirect_uri: redirectUri,
+    response_type: 'code',
+    scope: 'https://www.googleapis.com/auth/drive',
+    access_type: 'offline',
+    prompt: 'consent'
+  }).toString();
+  window.location.href = url;
+}
+
+async function verificarStatusDrive() {
+  const area = document.getElementById('drive-status-area');
+  if (!area) return;
+  try {
+    const r = await fetch(SB_URL + '/functions/v1/drive-status', {
+      headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + TOKEN }
+    });
+    const status = await r.json();
+    if (status.conectado) {
+      area.innerHTML = `<span style="color:var(--success)"><i class="ti ti-circle-check"></i> Conectado ao Google Drive</span>
+        ${status.pasta_inbox_nome ? `<div style="margin-top:4px;color:#6B7280">Pasta de entrada: <strong>${status.pasta_inbox_nome}</strong></div>` : `<div style="margin-top:4px;color:#6B7280">Ainda falta escolher a pasta de entrada.</div>`}
+        ${status.ultima_execucao ? `<div style="color:#6B7280">Última importação: ${new Date(status.ultima_execucao).toLocaleString('pt-BR')}</div>` : ''}
+        <button class="btn btn-sm" style="margin-top:8px" onclick="conectarGoogleDrive()"><i class="ti ti-refresh"></i> Reconectar</button>`;
+    } else {
+      area.innerHTML = `<button class="btn btn-navy btn-sm" onclick="conectarGoogleDrive()"><i class="ti ti-brand-google-drive"></i> Conectar Google Drive</button>`;
+    }
+  } catch (e) {
+    area.innerHTML = `<span style="color:var(--danger)">Não foi possível verificar a conexão agora.</span>`;
+  }
 }
 
 function abrirModalObrig() {

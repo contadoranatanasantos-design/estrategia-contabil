@@ -849,8 +849,6 @@ function renderCardsObrigacoesDemandas(lista) {
   if (lista.length === 0) return '<div class="empty-state"><i class="ti ti-checkbox"></i>Nenhuma obrigação encontrada.</div>';
   return lista.map(ob => {
     const s = statsObrigacoesDemandas[ob.id] || { total: 0, feitos: 0 };
-    const pctFeito = s.total > 0 ? Math.round(s.feitos/s.total*100) : 0;
-    const pctPendente = s.total > 0 ? 100 - pctFeito : 0;
     const statusPrazo = statusPrazoObrigacao(ob, s);
     const concluida = s.total > 0 && s.feitos === s.total;
     return `
@@ -866,8 +864,8 @@ function renderCardsObrigacoesDemandas(lista) {
         <div style="display:flex;align-items:center;gap:14px">
           <div style="font-size:12px;color:#9CA3AF">${s.total} empresa(s)</div>
           ${statusPrazo ? `<span class="badge ${statusPrazo.badge}">${statusPrazo.texto}</span>` : ''}
-          <span class="badge badge-success">${pctFeito}% feito</span>
-          <span class="badge badge-warning">${pctPendente}% pendente</span>
+          <span class="badge badge-success">${s.feitos} feita(s)</span>
+          <span class="badge badge-warning">${s.total - s.feitos} pendente(s)</span>
           <div style="display:flex;gap:6px" onclick="event.stopPropagation()">
             <button class="btn btn-sm" onclick="editarObrig('${ob.id}')"><i class="ti ti-edit"></i></button>
             <button class="btn btn-sm btn-danger" onclick="excluirObrig('${ob.id}','${ob.nome}')"><i class="ti ti-trash"></i></button>

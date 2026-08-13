@@ -1382,6 +1382,22 @@ function caminhoPorTipo(tipo, node, prefixo) {
   return null;
 }
 
+function noDoTipo(tipo, node) {
+  node = node || { filhos: PASTAS_EMPRESA };
+  for (const [key, filho] of Object.entries(node.filhos || {})) {
+    if (!filho.filhos && key === tipo) return filho;
+    if (filho.filhos) {
+      const achado = noDoTipo(tipo, filho);
+      if (achado) return achado;
+    }
+  }
+  return null;
+}
+
+function tipoEhPastinha(tipo) {
+  return !!noDoTipo(tipo)?.pastinhas;
+}
+
 let clientesEmpresas = [];
 let contagemEmpresas = {};
 
@@ -1407,9 +1423,13 @@ function filtrarEmpresas() {
 
 async function pagEmpresas() {
   clientesEmpresas = await api('clientes?select=id,razao_social&status=eq.Ativo&order=razao_social');
-  const docs = await api(`documentos?mes=eq.${mesSel}&ano=eq.${anoSel}&select=cliente_id`);
+  const docs = await api('documentos?select=cliente_id,tipo,mes,ano');
   contagemEmpresas = {};
-  docs.forEach(d => { contagemEmpresas[d.cliente_id] = (contagemEmpresas[d.cliente_id]||0)+1; });
+  docs.forEach(d => {
+    if (tipoEhPastinha(d.tipo) || (d.mes === mesSel && d.ano === anoSel)) {
+      contagemEmpresas[d.cliente_id] = (contagemEmpresas[d.cliente_id]||0)+1;
+    }
+  });
   const c = document.getElementById('content');
   c.innerHTML = `
     <div class="page-header">
@@ -1608,9 +1628,13 @@ function verPastaCliente(clienteId) {
 async function verNivel(clienteId, pathStr) {
   const path = pathStr ? pathStr.split(',') : [];
   const cl = (await api(`clientes?id=eq.${clienteId}&select=razao_social,segmento`))[0];
-  const docsTodos = await api(`documentos?cliente_id=eq.${clienteId}&select=tipo`);
-  const contagem = {};
-  docsTodos.forEach(d => { contagem[d.tipo] = (contagem[d.tipo]||0)+1; });
+  const docsTodos = await api(`documentos?cliente_id=eq.${clienteId}&select=tipo,mes,ano`);
+  const contagemTodos = {};
+  const contagemMes = {};
+  docsTodos.forEach(d => {
+    contagemTodos[d.tipo] = (contagemTodos[d.tipo]||0)+1;
+    if (d.mes === mesSel && d.ano === anoSel) contagemMes[d.tipo] = (contagemMes[d.tipo]||0)+1;
+  });
   const node = pastaNode(path);
   const labels = caminhoLabels(path);
   const pathVoltar = path.slice(0,-1).join(',');
@@ -1629,7 +1653,7 @@ async function verNivel(clienteId, pathStr) {
     </div>
     <div class="page-header-title" style="margin-bottom:16px">${cl.razao_social}${labels.length ? ' — ' + labels.join(' — ') : ''}</div>
     ${entradas.length === 0 ? '<div class="empty-state"><i class="ti ti-folder-x"></i>Nenhuma subpasta disponível para o segmento deste cliente.</div>' : entradas.map(([key, filho]) => {
-      const total = tiposDoNo(key, filho).reduce((s,t) => s + (contagem[t]||0), 0);
+      const total = tiposDoNo(key, filho).reduce((s,t) => s + ((tipoEhPastinha(t) ? contagemTodos[t] : contagemMes[t])||0), 0);
       const novoPath = path.concat([key]).join(',');
       const destino = filho.filhos ? `verNivel('${clienteId}','${novoPath}')` : (filho.pastinhas ? `verPastinhas('${clienteId}','${novoPath}')` : `verArquivos('${clienteId}','${novoPath}')`);
       return `

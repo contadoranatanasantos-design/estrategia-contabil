@@ -1398,6 +1398,22 @@ function tipoEhPastinha(tipo) {
 
 let clientesEmpresas = [];
 let contagemEmpresas = {};
+let filtroEmpresasAtivo = 'todos';
+
+function empresaPassaFiltro(cl) {
+  if (filtroEmpresasAtivo === 'todos') return true;
+  const tem = (contagemEmpresas[cl.id]||0) > 0;
+  if (filtroEmpresasAtivo === 'com') return tem;
+  if (filtroEmpresasAtivo === 'sem') return !tem;
+  return true;
+}
+
+function definirFiltroEmpresas(f) {
+  filtroEmpresasAtivo = f;
+  document.querySelectorAll('.filtro-empresa-btn').forEach(b => b.classList.remove('btn-navy'));
+  document.getElementById('filtro-empresa-'+f).classList.add('btn-navy');
+  filtrarEmpresas();
+}
 
 function renderListaEmpresas(lista) {
   if (lista.length === 0) return '<div class="empty-state"><i class="ti ti-building"></i>Nenhum cliente encontrado.</div>';
@@ -1415,11 +1431,12 @@ function renderListaEmpresas(lista) {
 
 function filtrarEmpresas() {
   const termo = document.getElementById('busca-empresa').value.trim().toLowerCase();
-  const filtrados = clientesEmpresas.filter(cl => (cl.razao_social||'').toLowerCase().includes(termo));
+  const filtrados = clientesEmpresas.filter(cl => (cl.razao_social||'').toLowerCase().includes(termo) && empresaPassaFiltro(cl));
   document.getElementById('lista-empresas').innerHTML = renderListaEmpresas(filtrados);
 }
 
 async function pagEmpresas() {
+  filtroEmpresasAtivo = 'todos';
   clientesEmpresas = await api('clientes?select=id,razao_social&status=eq.Ativo&order=razao_social');
   const docs = await api('documentos?select=cliente_id,tipo,mes,ano');
   contagemEmpresas = {};
@@ -1428,6 +1445,8 @@ async function pagEmpresas() {
       contagemEmpresas[d.cliente_id] = (contagemEmpresas[d.cliente_id]||0)+1;
     }
   });
+  const countCom = clientesEmpresas.filter(cl => (contagemEmpresas[cl.id]||0) > 0).length;
+  const countSem = clientesEmpresas.length - countCom;
   const c = document.getElementById('content');
   c.innerHTML = `
     <div class="page-header">
@@ -1446,6 +1465,11 @@ async function pagEmpresas() {
         <input type="file" id="lote-arquivos" multiple accept="application/pdf" onchange="processarLote()">
         <div id="lote-resultado" style="margin-top:16px"></div>
       </div>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+      <button class="btn btn-sm filtro-empresa-btn btn-navy" id="filtro-empresa-todos" onclick="definirFiltroEmpresas('todos')">Todas (${clientesEmpresas.length})</button>
+      <button class="btn btn-sm filtro-empresa-btn" id="filtro-empresa-com" onclick="definirFiltroEmpresas('com')">Com anexos (${countCom})</button>
+      <button class="btn btn-sm filtro-empresa-btn" id="filtro-empresa-sem" onclick="definirFiltroEmpresas('sem')">Sem anexos (${countSem})</button>
     </div>
     <div class="field" style="max-width:360px;margin-bottom:16px">
       <div style="position:relative">
@@ -1720,7 +1744,10 @@ async function verArquivos(clienteId, pathStr) {
   const c = document.getElementById('content');
   c.innerHTML = `
     <div class="page-header">
-      <button class="btn" onclick="${voltarOnclick}"><i class="ti ti-arrow-left"></i> Voltar</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn" onclick="${voltarOnclick}"><i class="ti ti-arrow-left"></i> Voltar</button>
+        <button class="btn" onclick="pagEmpresas()"><i class="ti ti-building"></i> Empresas</button>
+      </div>
       <div style="display:flex;gap:8px">
         <select onchange="mesSel=parseInt(this.value);verArquivos('${clienteId}','${pathStr}')" style="height:36px;padding:0 10px;border-radius:8px;border:1px solid #E5E7EB;font-size:13px">
           ${meses.map((m,i)=>`<option value="${i}" ${i===mesSel?'selected':''}>${m}</option>`).join('')}
@@ -1794,7 +1821,10 @@ async function verArquivosPastinha(clienteId, pathStr, subpasta) {
   const c = document.getElementById('content');
   c.innerHTML = `
     <div class="page-header">
-      <button class="btn" onclick="verPastinhas('${clienteId}','${pathStr}')"><i class="ti ti-arrow-left"></i> Voltar</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn" onclick="verPastinhas('${clienteId}','${pathStr}')"><i class="ti ti-arrow-left"></i> Voltar</button>
+        <button class="btn" onclick="pagEmpresas()"><i class="ti ti-building"></i> Empresas</button>
+      </div>
     </div>
     <div class="card">
       <div class="card-header">

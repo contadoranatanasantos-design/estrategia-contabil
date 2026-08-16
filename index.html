@@ -670,6 +670,26 @@ async function editarCliente(id) {
   document.getElementById('ov-cliente').classList.add('show');
 }
 
+async function registrarHistoricoHonorarioSeMudou(clienteId, clienteAntigo, honorarioNovo) {
+  if (!clienteAntigo || (clienteAntigo.honorario||0) === honorarioNovo) return;
+  const existeHistorico = await api(`historico_honorario?cliente_id=eq.${clienteId}&limit=1`);
+  if (existeHistorico.length === 0) {
+    // Primeira mudança registrada pra esse cliente: guarda o valor ANTIGO valendo
+    // desde o início do rastreamento (ou desde a data de início do cliente, se for depois),
+    // pra não bagunçar o cálculo dos meses já passados.
+    let mesAntigo = RECEBER_INICIO_MES, anoAntigo = RECEBER_INICIO_ANO;
+    if (clienteAntigo.data_inicio) {
+      const d = new Date(clienteAntigo.data_inicio + 'T00:00:00');
+      if (mesAnoIdx(d.getMonth(), d.getFullYear()) > mesAnoIdx(mesAntigo, anoAntigo)) {
+        mesAntigo = d.getMonth(); anoAntigo = d.getFullYear();
+      }
+    }
+    await api('historico_honorario', 'POST', { cliente_id: clienteId, valor: clienteAntigo.honorario||0, mes: mesAntigo, ano: anoAntigo });
+  }
+  // Registra o valor NOVO valendo a partir do mês/ano selecionado agora no sistema.
+  await api('historico_honorario', 'POST', { cliente_id: clienteId, valor: honorarioNovo, mes: mesSel, ano: anoSel });
+}
+
 async function salvarCliente() {
   const id = document.getElementById('c-id').value;
   const razao = document.getElementById('c-razao').value.trim();
@@ -708,9 +728,11 @@ async function salvarCliente() {
   };
   let clienteId = id;
   if (id) {
+    const clienteAntigo = (await api(`clientes?id=eq.${id}&select=honorario,data_inicio`))[0];
     await api(`clientes?id=eq.${id}`, 'PATCH', dados);
     await api(`cliente_obrigacoes?cliente_id=eq.${id}`, 'DELETE');
     await api(`socios?cliente_id=eq.${id}`, 'DELETE');
+    await registrarHistoricoHonorarioSeMudou(id, clienteAntigo, dados.honorario);
   } else {
     const res = await api('clientes', 'POST', dados);
     clienteId = res[0]?.id;
@@ -2297,14 +2319,28 @@ const RECEBER_INICIO_ANO = 2026;
 let clientesReceberTodos = [];
 let pagamentosReceberTodos = [];
 let pagamentosReceberHistorico = [];
+let historicoHonorarioTodos = [];
 let saldoDevedorMap = {};
 
 function mesAnoIdx(mes, ano) { return ano*12+mes; }
 
+// Descobre qual era o honorário vigente de um cliente num mês/ano específico,
+// olhando o histórico de mudanças. Se não houver histórico (cliente nunca teve
+// o honorário alterado desde que essa função existe), usa o valor atual — mantém
+// o comportamento de sempre pros clientes sem nenhuma mudança registrada.
+function honorarioNoMes(cl, mes, ano) {
+  const idxAlvo = mesAnoIdx(mes, ano);
+  const historicoCliente = historicoHonorarioTodos.filter(h => h.cliente_id === cl.id && mesAnoIdx(h.mes, h.ano) <= idxAlvo);
+  if (historicoCliente.length === 0) return cl.honorario || 0;
+  historicoCliente.sort((a,b) => mesAnoIdx(b.ano,b.mes) - mesAnoIdx(a.ano,a.mes));
+  return historicoCliente[0].valor;
+}
+
 function calcularSaldoDevedor(cl) {
-  const honorario = cl.honorario || 0;
+  const honorarioAtual = cl.honorario || 0;
   let saldo = cl.saldo_devedor_inicial || 0;
-  if (honorario <= 0) return saldo;
+  const temHistorico = historicoHonorarioTodos.some(h => h.cliente_id === cl.id);
+  if (honorarioAtual <= 0 && !temHistorico) return saldo;
   let inicioIdx = mesAnoIdx(RECEBER_INICIO_MES, RECEBER_INICIO_ANO);
   if (cl.data_inicio) {
     const d = new Date(cl.data_inicio + 'T00:00:00');
@@ -2314,9 +2350,10 @@ function calcularSaldoDevedor(cl) {
   const fimIdx = mesAnoIdx(mesSel, anoSel);
   for (let idx = inicioIdx; idx < fimIdx; idx++) {
     const mes = idx % 12, ano = Math.floor(idx/12);
+    const honorarioDoMes = honorarioNoMes(cl, mes, ano);
     const pag = pagamentosReceberHistorico.find(p => p.cliente_id === cl.id && p.mes === mes && p.ano === ano);
     const recebido = pag?.valor_recebido || 0;
-    saldo += Math.max(0, honorario - recebido);
+    saldo = Math.max(0, saldo + honorarioDoMes - recebido);
   }
   return saldo;
 }
@@ -2413,6 +2450,7 @@ async function pagReceber() {
   clientesReceberTodos = await api('clientes?status=eq.Ativo&select=*&order=razao_social');
   pagamentosReceberTodos = await api(`honorarios_pagamentos?mes=eq.${mesSel}&ano=eq.${anoSel}`);
   pagamentosReceberHistorico = await api('honorarios_pagamentos?select=cliente_id,mes,ano,valor_recebido');
+  historicoHonorarioTodos = await api('historico_honorario?select=cliente_id,valor,mes,ano');
   saldoDevedorMap = {};
   clientesReceberTodos.forEach(cl => { saldoDevedorMap[cl.id] = calcularSaldoDevedor(cl); });
   filtroReceberAtivo = 'todos';

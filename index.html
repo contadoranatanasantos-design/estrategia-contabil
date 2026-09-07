@@ -2406,7 +2406,15 @@ function renderLinhasReceber(lista) {
       <td>${fmt(recebido)}</td>
       <td>${saldoFinal > 0 ? `<span style="color:var(--danger);font-weight:500">${fmt(saldoFinal)}</span>` : '<span style="color:var(--success)">Quitado</span>'}</td>
       <td><span class="badge ${status.badge}">${status.label}</span></td>
-      <td>${status.label !== 'Quitado' ? `<button class="btn btn-sm btn-navy" onclick="abrirBaixaHon('${cl.id}','${cl.razao_social}',${cl.honorario},${recebido},${saldoDevedor})"><i class="ti ti-cash"></i> Baixa</button>` : '✅'}</td>
+      <td>${status.label !== 'Quitado'
+        ? `<button class="btn btn-sm btn-navy" onclick="abrirBaixaHon('${cl.id}','${cl.razao_social.replace(/'/g,"\\'")}',${cl.honorario},${recebido},${saldoDevedor})"><i class="ti ti-cash"></i> Baixa</button>`
+        : (pag
+          ? `<div style="display:flex;gap:6px;align-items:center">
+               <span style="color:var(--success)"><i class="ti ti-check"></i></span>
+               <button class="btn btn-sm" title="Editar" onclick="editarBaixaHon('${cl.id}','${cl.razao_social.replace(/'/g,"\\'")}','${pag.id}',${recebido},'${pag.data_recebimento||''}')"><i class="ti ti-pencil"></i></button>
+               <button class="btn btn-sm btn-danger" title="Excluir" onclick="excluirBaixaHon('${pag.id}','${cl.razao_social.replace(/'/g,"\\'")}')"><i class="ti ti-trash"></i></button>
+             </div>`
+          : '✅')}</td>
     </tr>`;
   }).join('');
   return rows || '<tr><td colspan="8" style="text-align:center;padding:24px;color:#9CA3AF">Nenhum cliente encontrado.</td></tr>';
@@ -2521,6 +2529,8 @@ async function pagReceber() {
         <div class="field"><label>Data do recebimento</label><input type="date" id="baixa-data" value="${new Date().toISOString().split('T')[0]}"></div>
         <div class="modal-footer">
           <input type="hidden" id="baixa-cliente-id">
+          <input type="hidden" id="baixa-pag-id">
+          <input type="hidden" id="baixa-modo" value="nova">
           <button class="btn" onclick="fecharModal('ov-baixa-hon')">Cancelar</button>
           <button class="btn btn-success" onclick="salvarBaixaHon()"><i class="ti ti-check"></i> Confirmar</button>
         </div>
@@ -2533,23 +2543,50 @@ function abrirBaixaHon(clienteId, nome, honorario, recebido, saldoDevedor) {
   document.getElementById('baixa-hon-titulo').textContent = 'Dar baixa — ' + nome;
   document.getElementById('baixa-hon-sub').textContent = `Honorário do mês: ${fmt(honorario)}${saldoDevedor>0?` · Saldo devedor anterior: ${fmt(saldoDevedor)}`:''} · Saldo em aberto: ${fmt(saldoEmAberto)} · Já recebido: ${fmt(recebido)}`;
   document.getElementById('baixa-cliente-id').value = clienteId;
+  document.getElementById('baixa-pag-id').value = '';
+  document.getElementById('baixa-modo').value = 'nova';
   document.getElementById('baixa-valor').value = '';
+  document.getElementById('baixa-data').value = new Date().toISOString().split('T')[0];
+  document.getElementById('ov-baixa-hon').classList.add('show');
+}
+
+function editarBaixaHon(clienteId, nome, pagId, valorAtual, dataAtual) {
+  document.getElementById('baixa-hon-titulo').textContent = 'Editar recebimento — ' + nome;
+  document.getElementById('baixa-hon-sub').textContent = 'Ajuste o valor ou a data desse recebimento já registrado.';
+  document.getElementById('baixa-cliente-id').value = clienteId;
+  document.getElementById('baixa-pag-id').value = pagId;
+  document.getElementById('baixa-modo').value = 'editar';
+  document.getElementById('baixa-valor').value = valorAtual;
+  document.getElementById('baixa-data').value = dataAtual || new Date().toISOString().split('T')[0];
   document.getElementById('ov-baixa-hon').classList.add('show');
 }
 
 async function salvarBaixaHon() {
   const clienteId = document.getElementById('baixa-cliente-id').value;
+  const pagId = document.getElementById('baixa-pag-id').value;
+  const modo = document.getElementById('baixa-modo').value;
   const valor = parseFloat(document.getElementById('baixa-valor').value)||0;
   const data = document.getElementById('baixa-data').value;
   if (!valor) { toast('Digite o valor recebido!','error'); return; }
-  const existing = await api(`honorarios_pagamentos?cliente_id=eq.${clienteId}&mes=eq.${mesSel}&ano=eq.${anoSel}`);
-  if (existing.length > 0) {
-    await api(`honorarios_pagamentos?id=eq.${existing[0].id}`, 'PATCH', { valor_recebido: (existing[0].valor_recebido||0)+valor, data_recebimento: data });
+  if (modo === 'editar' && pagId) {
+    await api(`honorarios_pagamentos?id=eq.${pagId}`, 'PATCH', { valor_recebido: valor, data_recebimento: data });
   } else {
-    await api('honorarios_pagamentos', 'POST', { cliente_id: clienteId, mes: mesSel, ano: anoSel, valor_recebido: valor, data_recebimento: data });
+    const existing = await api(`honorarios_pagamentos?cliente_id=eq.${clienteId}&mes=eq.${mesSel}&ano=eq.${anoSel}`);
+    if (existing.length > 0) {
+      await api(`honorarios_pagamentos?id=eq.${existing[0].id}`, 'PATCH', { valor_recebido: (existing[0].valor_recebido||0)+valor, data_recebimento: data });
+    } else {
+      await api('honorarios_pagamentos', 'POST', { cliente_id: clienteId, mes: mesSel, ano: anoSel, valor_recebido: valor, data_recebimento: data });
+    }
   }
   fecharModal('ov-baixa-hon');
-  toast('Baixa registrada!','success');
+  toast(modo === 'editar' ? 'Recebimento atualizado!' : 'Baixa registrada!','success');
+  pagReceber();
+}
+
+async function excluirBaixaHon(pagId, nome) {
+  if (!confirm(`Excluir o recebimento registrado para "${nome}"? Isso volta o status para pendente.`)) return;
+  await api(`honorarios_pagamentos?id=eq.${pagId}`, 'DELETE');
+  toast('Recebimento excluído!','success');
   pagReceber();
 }
 
@@ -2571,7 +2608,13 @@ async function pagPagar() {
       <td>Dia ${d.dia_vencimento}</td>
       <td>${fmt(d.valor)}</td>
       <td><span class="badge ${status==='Pago'?'badge-success':'badge-warning'}">${status}</span></td>
-      <td>${status!=='Pago'?`<button class="btn btn-sm btn-success" onclick="pagarDespesa('${d.id}','${d.nome}')"><i class="ti ti-check"></i> Pagar</button>`:'✅'}</td>
+      <td>${status!=='Pago'
+        ? `<button class="btn btn-sm btn-success" onclick="pagarDespesa('${d.id}','${d.nome.replace(/'/g,"\\'")}')"><i class="ti ti-check"></i> Pagar</button>`
+        : `<div style="display:flex;gap:6px;align-items:center">
+             <span style="color:var(--success)"><i class="ti ti-check"></i></span>
+             <button class="btn btn-sm" title="Editar data" onclick="editarPagamentoDespesa('${pg.id}','${d.nome.replace(/'/g,"\\'")}','${pg.data_pagamento||''}')"><i class="ti ti-pencil"></i></button>
+             <button class="btn btn-sm btn-danger" title="Excluir" onclick="excluirPagamentoDespesa('${pg.id}','${d.nome.replace(/'/g,"\\'")}')"><i class="ti ti-trash"></i></button>
+           </div>`}</td>
     </tr>`;
   }).join('');
 
@@ -2607,7 +2650,41 @@ async function pagPagar() {
           <button class="btn btn-navy" onclick="salvarDespesa()"><i class="ti ti-check"></i> Salvar</button>
         </div>
       </div>
+    </div>
+    <div class="overlay" id="ov-editar-pagamento-despesa">
+      <div class="modal" style="width:360px">
+        <div class="modal-title" id="epd-titulo">Editar pagamento</div>
+        <div class="field"><label>Data do pagamento</label><input type="date" id="epd-data"></div>
+        <div class="modal-footer">
+          <input type="hidden" id="epd-id">
+          <button class="btn" onclick="fecharModal('ov-editar-pagamento-despesa')">Cancelar</button>
+          <button class="btn btn-navy" onclick="salvarEdicaoPagamentoDespesa()"><i class="ti ti-check"></i> Salvar</button>
+        </div>
+      </div>
     </div>`;
+}
+
+function editarPagamentoDespesa(id, nome, data) {
+  document.getElementById('epd-titulo').textContent = 'Editar pagamento — ' + nome;
+  document.getElementById('epd-id').value = id;
+  document.getElementById('epd-data').value = data || new Date().toISOString().split('T')[0];
+  document.getElementById('ov-editar-pagamento-despesa').classList.add('show');
+}
+
+async function salvarEdicaoPagamentoDespesa() {
+  const id = document.getElementById('epd-id').value;
+  const data = document.getElementById('epd-data').value;
+  await api(`despesas_pagamentos?id=eq.${id}`, 'PATCH', { data_pagamento: data });
+  fecharModal('ov-editar-pagamento-despesa');
+  toast('Pagamento atualizado!','success');
+  pagPagar();
+}
+
+async function excluirPagamentoDespesa(id, nome) {
+  if (!confirm(`Excluir o pagamento registrado para "${nome}"? Isso volta o status para pendente.`)) return;
+  await api(`despesas_pagamentos?id=eq.${id}`, 'DELETE');
+  toast('Pagamento excluído!','success');
+  pagPagar();
 }
 
 function abrirModalDespesa() { document.getElementById('ov-despesa').classList.add('show'); }

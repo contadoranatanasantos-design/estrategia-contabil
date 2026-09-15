@@ -1523,8 +1523,15 @@ async function baixarGuiasMes() {
     const clientesMap = {};
     clientes.forEach(cl => { clientesMap[cl.id] = cl.razao_social || cl.id; });
 
-    const documentos = await api(`documentos?tipo=eq.guias&mes=eq.${mesSel}&ano=eq.${anoSel}&select=*`);
-    if (documentos.length === 0) { toast(`Nenhuma guia encontrada para ${meses[mesSel]}/${anoSel}.`, 'error'); return; }
+    const documentosTodos = await api(`documentos?tipo=eq.guias&mes=eq.${mesSel}&ano=eq.${anoSel}&select=*`);
+    const envios = await api(`envios_guias?mes=eq.${mesSel}&ano=eq.${anoSel}&select=cliente_id`);
+    const idsEnviados = new Set(envios.map(e => e.cliente_id));
+    const documentos = documentosTodos.filter(d => !idsEnviados.has(d.cliente_id));
+    const puladas = documentosTodos.length - documentos.length;
+    if (documentos.length === 0) {
+      toast(documentosTodos.length === 0 ? `Nenhuma guia encontrada para ${meses[mesSel]}/${anoSel}.` : `Todas as guias de ${meses[mesSel]}/${anoSel} já foram enviadas!`, documentosTodos.length === 0 ? 'error' : 'success');
+      return;
+    }
 
     const zip = new JSZip();
     let feitos = 0, falhas = 0;
@@ -1555,7 +1562,8 @@ async function baixarGuiasMes() {
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
-    toast(falhas > 0 ? `Baixado! ${feitos-falhas} arquivo(s) ok, ${falhas} não puderam ser incluídos.` : `${feitos} guia(s) baixada(s) com sucesso!`, falhas > 0 ? 'error' : 'success');
+    const sufixoPuladas = puladas > 0 ? ` (${puladas} já enviada(s) este mês foram puladas)` : '';
+    toast(falhas > 0 ? `Baixado! ${feitos-falhas} arquivo(s) ok, ${falhas} não puderam ser incluídos.${sufixoPuladas}` : `${feitos} guia(s) baixada(s) com sucesso!${sufixoPuladas}`, falhas > 0 ? 'error' : 'success');
   } catch (e) {
     toast('Erro ao gerar o pacote de guias. Tente novamente.', 'error');
   } finally {
@@ -1563,21 +1571,41 @@ async function baixarGuiasMes() {
   }
 }
 
-let enviosGuiasFeitos = new Set();
-
 function mensagemGuias(razaoSocial) {
   return `Prezado Cliente!\n\nCompartilhamos em anexo as guias e os documentos fiscais referente a apuração dos impostos da empresa ${razaoSocial} relativos à competência de ${meses[mesSel]}/${anoSel}.\n\nDisponibilizamos este material com antecedência para facilitar a programação financeira da sua empresa, evitando imprevistos no caixa. Conte conosco se precisar de qualquer suporte ou esclarecimentos.\n\nAtenciosamente,\nSetor Fiscal | Estratégia Contábil`;
 }
 
-function linhaEnvioGuia(cl) {
+async function marcarGuiaEnviada(clienteId) {
+  await fetch(SB_URL + '/rest/v1/envios_guias?on_conflict=cliente_id,mes,ano', {
+    method: 'POST',
+    headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + TOKEN, 'Content-Type': 'application/json', 'Prefer': 'resolution=merge-duplicates' },
+    body: JSON.stringify({ cliente_id: clienteId, mes: mesSel, ano: anoSel })
+  });
+}
+
+async function desmarcarGuiaEnviada(clienteId) {
+  await api(`envios_guias?cliente_id=eq.${clienteId}&mes=eq.${mesSel}&ano=eq.${anoSel}`, 'DELETE');
+  abrirListaEnvioGuias();
+}
+
+function linhaEnvioGuia(cl, enviado) {
   const telefone = (cl.telefone||'').replace(/\D/g,'');
-  const feito = enviosGuiasFeitos.has(cl.id);
-  return `<tr id="linha-envio-${cl.id}">
+  if (enviado) {
+    return `<tr style="opacity:.6">
+      <td>${cl.razao_social}</td>
+      <td>${cl.telefone||''}</td>
+      <td style="display:flex;align-items:center;gap:10px">
+        <span style="color:var(--success);font-size:13px"><i class="ti ti-check"></i> Enviado</span>
+        <button class="btn btn-sm" onclick="desmarcarGuiaEnviada('${cl.id}')">Desfazer</button>
+      </td>
+    </tr>`;
+  }
+  return `<tr>
     <td>${cl.razao_social}</td>
     <td>${telefone ? cl.telefone : '<span style="color:var(--danger)">sem telefone</span>'}</td>
     <td>
       ${telefone
-        ? `<button class="btn btn-sm ${feito?'':'btn-navy'}" onclick="abrirWhatsGuia('${cl.id}')"><i class="ti ti-brand-whatsapp"></i> ${feito?'Aberto ✓':'Abrir WhatsApp'}</button>`
+        ? `<button class="btn btn-sm btn-navy" onclick="abrirWhatsGuia('${cl.id}')"><i class="ti ti-brand-whatsapp"></i> Abrir WhatsApp</button>`
         : `<span style="color:#9CA3AF;font-size:12px">cadastre o telefone</span>`}
     </td>
   </tr>`;
@@ -1586,21 +1614,26 @@ function linhaEnvioGuia(cl) {
 async function abrirListaEnvioGuias() {
   const area = document.getElementById('lista-envio-guias-area');
   area.innerHTML = '<div style="padding:16px;color:#9CA3AF">Carregando lista...</div>';
-  enviosGuiasFeitos = new Set();
   const clientes = await api('clientes?select=id,razao_social,telefone');
   const documentos = await api(`documentos?tipo=eq.guias&mes=eq.${mesSel}&ano=eq.${anoSel}&select=cliente_id`);
   const idsComGuia = new Set(documentos.map(d => d.cliente_id));
-  const lista = clientes.filter(cl => idsComGuia.has(cl.id)).sort((a,b)=>(a.razao_social||'').localeCompare(b.razao_social||''));
-  if (lista.length === 0) { area.innerHTML = `<div style="padding:16px;color:#9CA3AF">Nenhum cliente com guia em ${meses[mesSel]}/${anoSel}.</div>`; return; }
-  window._listaEnvioGuias = lista;
+  const envios = await api(`envios_guias?mes=eq.${mesSel}&ano=eq.${anoSel}&select=cliente_id`);
+  const idsEnviados = new Set(envios.map(e => e.cliente_id));
+  const todos = clientes.filter(cl => idsComGuia.has(cl.id)).sort((a,b)=>(a.razao_social||'').localeCompare(b.razao_social||''));
+  if (todos.length === 0) { area.innerHTML = `<div style="padding:16px;color:#9CA3AF">Nenhum cliente com guia em ${meses[mesSel]}/${anoSel}.</div>`; return; }
+  const pendentes = todos.filter(cl => !idsEnviados.has(cl.id));
+  const enviados = todos.filter(cl => idsEnviados.has(cl.id));
+  window._listaEnvioGuias = todos;
+  const linhas = pendentes.map(cl => linhaEnvioGuia(cl, false)).concat(enviados.map(cl => linhaEnvioGuia(cl, true)));
   area.innerHTML = `
+    <div style="font-size:13px;color:#4B5563;margin-bottom:8px">${pendentes.length} pendente(s) · ${enviados.length} já enviado(s) este mês</div>
     <table class="table">
       <thead><tr><th>Cliente</th><th>Telefone</th><th></th></tr></thead>
-      <tbody id="tbody-envio-guias">${lista.map(cl => linhaEnvioGuia(cl)).join('')}</tbody>
+      <tbody>${linhas.join('')}</tbody>
     </table>`;
 }
 
-function abrirWhatsGuia(clienteId) {
+async function abrirWhatsGuia(clienteId) {
   const cl = (window._listaEnvioGuias||[]).find(c => c.id === clienteId);
   if (!cl) return;
   const telefone = (cl.telefone||'').replace(/\D/g,'');
@@ -1608,9 +1641,8 @@ function abrirWhatsGuia(clienteId) {
   const numero = telefone.startsWith('55') ? telefone : '55'+telefone;
   const mensagem = mensagemGuias(cl.razao_social);
   window.open(`whatsapp://send?phone=${numero}&text=${encodeURIComponent(mensagem)}`, '_blank');
-  enviosGuiasFeitos.add(clienteId);
-  const linha = document.getElementById('linha-envio-'+clienteId);
-  if (linha) linha.outerHTML = linhaEnvioGuia(cl);
+  await marcarGuiaEnviada(clienteId);
+  abrirListaEnvioGuias();
 }
 
 async function extrairTextoPDF(file) {

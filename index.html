@@ -1481,6 +1481,17 @@ async function pagEmpresas() {
       </div>
     </div>
     <div class="card">
+      <div class="card-header"><div class="card-title">Guias do mês — todos os clientes</div></div>
+      <div class="card-body">
+        <div style="font-size:13px;color:#4B5563;margin-bottom:12px">Baixa as guias de impostos (pasta "Apuração / Guias") de <strong>todos os clientes</strong> que têm arquivo em ${meses[mesSel]}/${anoSel}, já organizadas em um .zip com uma pasta por cliente — pronto pra abrir e anexar no WhatsApp, sem misturar nada.</div>
+        <button class="btn btn-navy" id="btn-baixar-guias-mes" onclick="baixarGuiasMes()"><i class="ti ti-file-zip"></i> Baixar guias de ${meses[mesSel]}/${anoSel} (.zip por cliente)</button>
+        <div style="border-top:1px solid var(--border);margin:16px 0"></div>
+        <div style="font-size:13px;color:#4B5563;margin-bottom:12px">Depois de baixar e extrair o .zip, use a lista abaixo pra abrir a conversa de cada cliente já com a mensagem certa pronta — você só arrasta o arquivo da pasta dele e aperta enviar.</div>
+        <button class="btn" id="btn-lista-envio-guias" onclick="abrirListaEnvioGuias()"><i class="ti ti-brand-whatsapp"></i> Ver lista para enviar (WhatsApp)</button>
+        <div id="lista-envio-guias-area" style="margin-top:12px"></div>
+      </div>
+    </div>
+    <div class="card">
       <div class="card-header"><div class="card-title">Upload em lote</div></div>
       <div class="card-body">
         <div style="font-size:13px;color:#4B5563;margin-bottom:12px">Selecione vários PDFs de uma vez (guias, situação fiscal, notas fiscais etc.). O sistema lê o CNPJ de dentro de cada arquivo e identifica o cliente e a pasta sozinho — o que não conseguir identificar, você escolhe manualmente.</div>
@@ -1500,6 +1511,106 @@ async function pagEmpresas() {
       </div>
     </div>
     <div id="lista-empresas">${renderListaEmpresas(clientesEmpresas)}</div>`;
+}
+
+async function baixarGuiasMes() {
+  const btn = document.getElementById('btn-baixar-guias-mes');
+  const textoOriginal = btn.innerHTML;
+  btn.disabled = true;
+  try {
+    btn.innerHTML = '<i class="ti ti-loader"></i> Buscando guias...';
+    const clientes = await api('clientes?select=id,razao_social');
+    const clientesMap = {};
+    clientes.forEach(cl => { clientesMap[cl.id] = cl.razao_social || cl.id; });
+
+    const documentos = await api(`documentos?tipo=eq.guias&mes=eq.${mesSel}&ano=eq.${anoSel}&select=*`);
+    if (documentos.length === 0) { toast(`Nenhuma guia encontrada para ${meses[mesSel]}/${anoSel}.`, 'error'); return; }
+
+    const zip = new JSZip();
+    let feitos = 0, falhas = 0;
+    for (const d of documentos) {
+      feitos++;
+      btn.innerHTML = `<i class="ti ti-loader"></i> Baixando ${feitos}/${documentos.length}...`;
+      try {
+        const r = await storageFetch(`/object/sign/documentos/${d.storage_path}`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expiresIn: 3600 })
+        });
+        const data = await r.json();
+        if (!data.signedURL) { falhas++; continue; }
+        const fileR = await fetch(SB_URL + '/storage/v1' + data.signedURL);
+        const blob = await fileR.blob();
+        const nomeCliente = sanitizarPastaBackup(clientesMap[d.cliente_id] || 'sem-cliente');
+        const nomeArquivoZip = (d.storage_path||'').split('/').pop() || d.nome_arquivo || 'arquivo';
+        zip.file(`${nomeCliente}/${nomeArquivoZip}`, blob);
+      } catch (e) { falhas++; }
+    }
+
+    btn.innerHTML = '<i class="ti ti-loader"></i> Compactando arquivo final...';
+    const zipBlob = await zip.generateAsync({ type: 'blob' });
+    const url = URL.createObjectURL(zipBlob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Guias-${meses[mesSel]}-${anoSel}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    toast(falhas > 0 ? `Baixado! ${feitos-falhas} arquivo(s) ok, ${falhas} não puderam ser incluídos.` : `${feitos} guia(s) baixada(s) com sucesso!`, falhas > 0 ? 'error' : 'success');
+  } catch (e) {
+    toast('Erro ao gerar o pacote de guias. Tente novamente.', 'error');
+  } finally {
+    btn.disabled = false; btn.innerHTML = textoOriginal;
+  }
+}
+
+let enviosGuiasFeitos = new Set();
+
+function mensagemGuias(razaoSocial) {
+  return `Prezado Cliente!\n\nCompartilhamos em anexo as guias e os documentos fiscais referente a apuração dos impostos da empresa ${razaoSocial} relativos à competência de ${meses[mesSel]}/${anoSel}.\n\nDisponibilizamos este material com antecedência para facilitar a programação financeira da sua empresa, evitando imprevistos no caixa. Conte conosco se precisar de qualquer suporte ou esclarecimentos.\n\nAtenciosamente,\nSetor Fiscal | Estratégia Contábil`;
+}
+
+function linhaEnvioGuia(cl) {
+  const telefone = (cl.telefone||'').replace(/\D/g,'');
+  const feito = enviosGuiasFeitos.has(cl.id);
+  return `<tr id="linha-envio-${cl.id}">
+    <td>${cl.razao_social}</td>
+    <td>${telefone ? cl.telefone : '<span style="color:var(--danger)">sem telefone</span>'}</td>
+    <td>
+      ${telefone
+        ? `<button class="btn btn-sm ${feito?'':'btn-navy'}" onclick="abrirWhatsGuia('${cl.id}')"><i class="ti ti-brand-whatsapp"></i> ${feito?'Aberto ✓':'Abrir WhatsApp'}</button>`
+        : `<span style="color:#9CA3AF;font-size:12px">cadastre o telefone</span>`}
+    </td>
+  </tr>`;
+}
+
+async function abrirListaEnvioGuias() {
+  const area = document.getElementById('lista-envio-guias-area');
+  area.innerHTML = '<div style="padding:16px;color:#9CA3AF">Carregando lista...</div>';
+  enviosGuiasFeitos = new Set();
+  const clientes = await api('clientes?select=id,razao_social,telefone');
+  const documentos = await api(`documentos?tipo=eq.guias&mes=eq.${mesSel}&ano=eq.${anoSel}&select=cliente_id`);
+  const idsComGuia = new Set(documentos.map(d => d.cliente_id));
+  const lista = clientes.filter(cl => idsComGuia.has(cl.id)).sort((a,b)=>(a.razao_social||'').localeCompare(b.razao_social||''));
+  if (lista.length === 0) { area.innerHTML = `<div style="padding:16px;color:#9CA3AF">Nenhum cliente com guia em ${meses[mesSel]}/${anoSel}.</div>`; return; }
+  window._listaEnvioGuias = lista;
+  area.innerHTML = `
+    <table class="table">
+      <thead><tr><th>Cliente</th><th>Telefone</th><th></th></tr></thead>
+      <tbody id="tbody-envio-guias">${lista.map(cl => linhaEnvioGuia(cl)).join('')}</tbody>
+    </table>`;
+}
+
+function abrirWhatsGuia(clienteId) {
+  const cl = (window._listaEnvioGuias||[]).find(c => c.id === clienteId);
+  if (!cl) return;
+  const telefone = (cl.telefone||'').replace(/\D/g,'');
+  if (!telefone) return;
+  const numero = telefone.startsWith('55') ? telefone : '55'+telefone;
+  const mensagem = mensagemGuias(cl.razao_social);
+  window.open(`whatsapp://send?phone=${numero}&text=${encodeURIComponent(mensagem)}`, '_blank');
+  enviosGuiasFeitos.add(clienteId);
+  const linha = document.getElementById('linha-envio-'+clienteId);
+  if (linha) linha.outerHTML = linhaEnvioGuia(cl);
 }
 
 async function extrairTextoPDF(file) {

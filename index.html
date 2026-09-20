@@ -2536,7 +2536,8 @@ function acaoReceber(cl, status, recebido, saldoDevedor, pag) {
 }
 
 function mensagemInadimplente(cl, saldoFinal) {
-  return `Prezado Cliente!\n\nIdentificamos que a empresa ${cl.razao_social} está com um valor em aberto de ${fmt(saldoFinal)}, referente a ${meses[mesSel]}/${anoSel}.\n\nPedimos a gentileza de regularizar o quanto antes para mantermos os serviços contábeis em dia. Qualquer dúvida ou necessidade de combinar a forma de pagamento, estamos à disposição.\n\nAtenciosamente,\nSetor Financeiro | Estratégia Contábil`;
+  const diaVenc = cl.dia_vencimento || 15;
+  return `Olá! Tudo bem?\n\nPassando aqui pra lembrar que os honorários da ${cl.razao_social} referentes a ${meses[mesSel]}/${anoSel} ainda não foram identificados no nosso sistema, no valor de ${fmt(saldoFinal)}.\n\nNosso vencimento é todo dia ${diaVenc} — se você já efetuou o pagamento, pode desconsiderar este lembrete e nos avisar pra darmos baixa certinho por aqui. Qualquer dúvida, estamos à disposição!\n\nSetor Financeiro | Estratégia Contábil`;
 }
 
 function cobrarInadimplente(clienteId) {

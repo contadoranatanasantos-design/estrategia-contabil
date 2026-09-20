@@ -2537,7 +2537,7 @@ function acaoReceber(cl, status, recebido, saldoDevedor, pag) {
 
 function mensagemInadimplente(cl, saldoFinal) {
   const diaVenc = cl.dia_vencimento || 15;
-  return `Olá! Tudo bem?\n\nPassando aqui pra lembrar que os honorários da ${cl.razao_social} referentes a ${meses[mesSel]}/${anoSel} ainda não foram identificados no nosso sistema, no valor de ${fmt(saldoFinal)}.\n\nNosso vencimento é todo dia ${diaVenc} — se você já efetuou o pagamento, pode desconsiderar este lembrete e nos avisar pra darmos baixa certinho por aqui. Qualquer dúvida, estamos à disposição!\n\nSetor Financeiro | Estratégia Contábil`;
+  return `Olá! Tudo bem?\n\nPassando aqui pra lembrar que os honorários da empresa ${cl.razao_social} referentes a ${meses[mesSel]}/${anoSel} ainda não foram identificados no nosso sistema, no valor de ${fmt(saldoFinal)}.\n\nNosso vencimento é todo dia ${diaVenc} — se você já efetuou o pagamento, pode desconsiderar este lembrete e nos avisar pra darmos baixa certinho por aqui. Qualquer dúvida, estamos à disposição!\n\nSetor Financeiro | Estratégia Contábil`;
 }
 
 function cobrarInadimplente(clienteId) {

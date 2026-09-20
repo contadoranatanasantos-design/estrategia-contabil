@@ -62,6 +62,7 @@
       .imagem-passo-processo img { width: 100% !important; max-width: 600px !important; height: auto !important; max-height: none !important; }
     }
     .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
+    .grid-5 { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 24px; }
     .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
     .metric { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; border-left: 3px solid var(--gold); }
     .metric-label { font-size: 11px; color: var(--text-muted); margin-bottom: 6px; }
@@ -2520,14 +2521,37 @@ function statusHonorario(cl, recebido, saldoDevedor) {
   return vencido ? { label: 'Inadimplente', badge: 'badge-danger' } : { label: 'A vencer', badge: 'badge-warning' };
 }
 
+function escJs(s) { return (s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;').replace(/\n/g,' '); }
+
 function acaoReceber(cl, status, recebido, saldoDevedor, pag) {
-  const nomeEsc = cl.razao_social.replace(/'/g,"\\'");
+  const nomeEsc = escJs(cl.razao_social);
   const baixaBtn = `<button class="btn btn-sm btn-navy" onclick="abrirBaixaHon('${cl.id}','${nomeEsc}',${cl.honorario},${recebido},${saldoDevedor})"><i class="ti ti-cash"></i> Baixa</button>`;
-  if (!pag) return status.label !== 'Quitado' ? baixaBtn : '✅';
-  const editBtn = `<button class="btn btn-sm" title="Editar" onclick="editarBaixaHon('${cl.id}','${nomeEsc}','${pag.id}',${recebido},'${pag.data_recebimento||''}')"><i class="ti ti-pencil"></i></button>`;
+  const cobrarBtn = status.label === 'Inadimplente' ? `<button class="btn btn-sm" title="Cobrar pelo WhatsApp" onclick="cobrarInadimplente('${cl.id}')"><i class="ti ti-brand-whatsapp"></i></button>` : '';
+  if (!pag) return (status.label !== 'Quitado' ? baixaBtn : '✅') + cobrarBtn;
+  const obsEsc = escJs(pag.observacao);
+  const editBtn = `<button class="btn btn-sm" title="Editar" onclick="editarBaixaHon('${cl.id}','${nomeEsc}','${pag.id}',${recebido},'${pag.data_recebimento||''}',${pag.valor_servico_extra||0},'${obsEsc}')"><i class="ti ti-pencil"></i></button>`;
   const delBtn = `<button class="btn btn-sm btn-danger" title="Excluir" onclick="excluirBaixaHon('${pag.id}','${nomeEsc}')"><i class="ti ti-trash"></i></button>`;
   const statusIcon = status.label === 'Quitado' ? `<span style="color:var(--success)"><i class="ti ti-check"></i></span>` : baixaBtn;
-  return `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${statusIcon}${editBtn}${delBtn}</div>`;
+  return `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${statusIcon}${editBtn}${delBtn}${cobrarBtn}</div>`;
+}
+
+function mensagemInadimplente(cl, saldoFinal) {
+  return `Prezado Cliente!\n\nIdentificamos que a empresa ${cl.razao_social} está com um valor em aberto de ${fmt(saldoFinal)}, referente a ${meses[mesSel]}/${anoSel}.\n\nPedimos a gentileza de regularizar o quanto antes para mantermos os serviços contábeis em dia. Qualquer dúvida ou necessidade de combinar a forma de pagamento, estamos à disposição.\n\nAtenciosamente,\nSetor Financeiro | Estratégia Contábil`;
+}
+
+function cobrarInadimplente(clienteId) {
+  const cl = clientesReceberTodos.find(c => c.id === clienteId);
+  if (!cl) return;
+  const telefone = (cl.telefone||'').replace(/\D/g,'');
+  if (!telefone) { toast('Este cliente não tem telefone cadastrado.', 'error'); return; }
+  const numero = telefone.startsWith('55') ? telefone : '55'+telefone;
+  const pag = pagamentosReceberTodos.find(p => p.cliente_id === clienteId);
+  const recebido = pag?.valor_recebido || 0;
+  const saldoDevedor = saldoDevedorMap[clienteId] || 0;
+  const saldoEmAberto = (cl.honorario||0) + saldoDevedor;
+  const saldoFinal = Math.max(0, saldoEmAberto - recebido);
+  const mensagem = mensagemInadimplente(cl, saldoFinal);
+  window.open(`whatsapp://send?phone=${numero}&text=${encodeURIComponent(mensagem)}`, '_blank');
 }
 
 function renderLinhasReceber(lista) {
@@ -2552,7 +2576,7 @@ function renderLinhasReceber(lista) {
     const saldoFinal = Math.max(0, saldoEmAberto - recebido);
     const status = statusHonorario(cl, recebido, saldoDevedor);
     return `<tr>
-      <td style="font-weight:500">${cl.razao_social}${pag ? `<br><span style="font-size:11px;color:#9CA3AF">Recebido em ${pag.data_recebimento||'—'}</span>` : ''}</td>
+      <td style="font-weight:500">${cl.razao_social}${pag ? `<br><span style="font-size:11px;color:#9CA3AF">Recebido em ${pag.data_recebimento||'—'}${pag.valor_servico_extra ? ` · +${fmt(pag.valor_servico_extra)} serviço extra` : ''}${pag.observacao ? ` · 📝 ${pag.observacao}` : ''}</span>` : ''}</td>
       <td>${fmt(cl.honorario)}</td>
       <td>${saldoDevedor > 0 ? `<span style="color:var(--danger);font-weight:500">${fmt(saldoDevedor)}</span>` : fmt(0)}</td>
       <td>${fmt(saldoEmAberto)}</td>
@@ -2641,8 +2665,9 @@ async function pagReceber() {
         <input type="number" value="${anoSel}" onchange="anoSel=parseInt(this.value);pagReceber()" style="height:36px;width:80px;padding:0 10px;border-radius:8px;border:1px solid #E5E7EB;font-size:13px">
       </div>
     </div>
-    <div class="grid-4">
-      <div class="metric"><div class="metric-label">Total a receber</div><div class="metric-value">${fmt(totalHonorarios+totalSaldoDevedor)}</div></div>
+    <div class="grid-5">
+      <div class="metric"><div class="metric-label">Valor da carteira</div><div class="metric-value">${fmt(totalHonorarios)}</div><div class="metric-sub">soma dos honorários cadastrados</div></div>
+      <div class="metric"><div class="metric-label">Total a receber</div><div class="metric-value">${fmt(totalHonorarios+totalSaldoDevedor)}</div><div class="metric-sub">carteira + pendente de meses anteriores</div></div>
       <div class="metric"><div class="metric-label">Recebido</div><div class="metric-value" style="color:var(--success)">${fmt(totalRecebido)}</div></div>
       <div class="metric"><div class="metric-label">Em aberto</div><div class="metric-value" style="color:var(--danger)">${fmt(totalSaldoFinal)}</div></div>
       <div class="metric"><div class="metric-label">Inadimplentes</div><div class="metric-value" style="color:var(--danger)">${countInadimplente}</div></div>
@@ -2670,8 +2695,10 @@ async function pagReceber() {
       <div class="modal" style="width:400px">
         <div class="modal-title" id="baixa-hon-titulo">Dar baixa</div>
         <div class="modal-sub" id="baixa-hon-sub"></div>
-        <div class="field"><label>Valor recebido (R$)</label><input type="number" id="baixa-valor" placeholder="0,00"></div>
+        <div class="field"><label>Valor pago — honorário (R$)</label><input type="number" id="baixa-valor" placeholder="0,00"></div>
+        <div class="field"><label>Serviço extra esse mês (R$) — opcional</label><input type="number" id="baixa-servico-extra" placeholder="0,00"></div>
         <div class="field"><label>Data do recebimento</label><input type="date" id="baixa-data" value="${new Date().toISOString().split('T')[0]}"></div>
+        <div class="field"><label>Observação</label><textarea id="baixa-observacao" rows="2" placeholder="Ex: serviço extra referente a alteração contratual"></textarea></div>
         <div class="modal-footer">
           <input type="hidden" id="baixa-cliente-id">
           <input type="hidden" id="baixa-pag-id">
@@ -2691,17 +2718,21 @@ function abrirBaixaHon(clienteId, nome, honorario, recebido, saldoDevedor) {
   document.getElementById('baixa-pag-id').value = '';
   document.getElementById('baixa-modo').value = 'nova';
   document.getElementById('baixa-valor').value = '';
+  document.getElementById('baixa-servico-extra').value = '';
+  document.getElementById('baixa-observacao').value = '';
   document.getElementById('baixa-data').value = new Date().toISOString().split('T')[0];
   document.getElementById('ov-baixa-hon').classList.add('show');
 }
 
-function editarBaixaHon(clienteId, nome, pagId, valorAtual, dataAtual) {
+function editarBaixaHon(clienteId, nome, pagId, valorAtual, dataAtual, servicoExtraAtual, observacaoAtual) {
   document.getElementById('baixa-hon-titulo').textContent = 'Editar recebimento — ' + nome;
-  document.getElementById('baixa-hon-sub').textContent = 'Ajuste o valor ou a data desse recebimento já registrado.';
+  document.getElementById('baixa-hon-sub').textContent = 'Ajuste o valor, a data ou a observação desse recebimento já registrado.';
   document.getElementById('baixa-cliente-id').value = clienteId;
   document.getElementById('baixa-pag-id').value = pagId;
   document.getElementById('baixa-modo').value = 'editar';
   document.getElementById('baixa-valor').value = valorAtual;
+  document.getElementById('baixa-servico-extra').value = servicoExtraAtual || '';
+  document.getElementById('baixa-observacao').value = observacaoAtual || '';
   document.getElementById('baixa-data').value = dataAtual || new Date().toISOString().split('T')[0];
   document.getElementById('ov-baixa-hon').classList.add('show');
 }
@@ -2711,16 +2742,23 @@ async function salvarBaixaHon() {
   const pagId = document.getElementById('baixa-pag-id').value;
   const modo = document.getElementById('baixa-modo').value;
   const valor = parseFloat(document.getElementById('baixa-valor').value)||0;
+  const servicoExtra = parseFloat(document.getElementById('baixa-servico-extra').value)||0;
+  const observacao = document.getElementById('baixa-observacao').value.trim();
   const data = document.getElementById('baixa-data').value;
-  if (!valor) { toast('Digite o valor recebido!','error'); return; }
+  if (!valor) { toast('Digite o valor pago referente ao honorário!','error'); return; }
   if (modo === 'editar' && pagId) {
-    await api(`honorarios_pagamentos?id=eq.${pagId}`, 'PATCH', { valor_recebido: valor, data_recebimento: data });
+    await api(`honorarios_pagamentos?id=eq.${pagId}`, 'PATCH', { valor_recebido: valor, data_recebimento: data, valor_servico_extra: servicoExtra, observacao: observacao || null });
   } else {
     const existing = await api(`honorarios_pagamentos?cliente_id=eq.${clienteId}&mes=eq.${mesSel}&ano=eq.${anoSel}`);
     if (existing.length > 0) {
-      await api(`honorarios_pagamentos?id=eq.${existing[0].id}`, 'PATCH', { valor_recebido: (existing[0].valor_recebido||0)+valor, data_recebimento: data });
+      await api(`honorarios_pagamentos?id=eq.${existing[0].id}`, 'PATCH', {
+        valor_recebido: (existing[0].valor_recebido||0)+valor,
+        data_recebimento: data,
+        valor_servico_extra: (existing[0].valor_servico_extra||0)+servicoExtra,
+        observacao: [existing[0].observacao, observacao].filter(Boolean).join(' | ') || null
+      });
     } else {
-      await api('honorarios_pagamentos', 'POST', { cliente_id: clienteId, mes: mesSel, ano: anoSel, valor_recebido: valor, data_recebimento: data });
+      await api('honorarios_pagamentos', 'POST', { cliente_id: clienteId, mes: mesSel, ano: anoSel, valor_recebido: valor, data_recebimento: data, valor_servico_extra: servicoExtra, observacao: observacao || null });
     }
   }
   fecharModal('ov-baixa-hon');

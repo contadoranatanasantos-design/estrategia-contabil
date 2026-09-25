@@ -334,12 +334,14 @@ async function pagDashboard() {
   const pctFeito = totalDemandas > 0 ? Math.round(feitos/totalDemandas*100) : 0;
   const pctPendente = totalDemandas > 0 ? 100 - pctFeito : 0;
   const em30dias = new Date(hoje); em30dias.setDate(em30dias.getDate()+30);
-  const certs = await api('certificados?select=data_vencimento,clientes(razao_social)');
+  const certs = await api('certificados?select=cliente_id,data_vencimento,clientes(razao_social)');
   const certsAlerta = certs
     .filter(cf => cf.data_vencimento && new Date(cf.data_vencimento+'T00:00:00') <= em30dias)
     .map(cf => ({ nome: cf.clientes?.razao_social||'—', venc: cf.data_vencimento, vencido: new Date(cf.data_vencimento+'T00:00:00') < hoje }));
   const certsVencidos = certsAlerta.filter(cf => cf.vencido).length;
   const certsProximos = certsAlerta.length - certsVencidos;
+  const certClienteIds = new Set(certs.map(cf => cf.cliente_id));
+  const certsSemAnexo = clientes.filter(cl => !certClienteIds.has(cl.id)).length;
   const c = document.getElementById('content');
   c.innerHTML = `
     <div style="margin-bottom:24px"><div style="font-size:20px;font-weight:600;color:var(--navy);margin-bottom:4px">Bem-vinda, Natana! 👋</div><div style="font-size:13px;color:#9CA3AF">Seu sistema está funcionando! <span style="color:var(--gold);font-weight:500">Comece cadastrando seus clientes.</span></div></div>
@@ -365,15 +367,16 @@ async function pagDashboard() {
         <div class="metric-sub">prazo já vencido, ainda pendente</div>
       </div>
     </div>
-    ${certsAlerta.length > 0 ? `
+    ${(certsAlerta.length > 0 || certsSemAnexo > 0) ? `
     <div class="card" style="border-left:4px solid var(--danger);cursor:pointer" onclick="ir('certificados')">
       <div class="card-header">
         <div class="card-title" style="color:var(--danger)">⚠️ Certificados digitais</div>
         <button class="btn btn-sm" onclick="event.stopPropagation();ir('certificados')">Ver todos →</button>
       </div>
-      <div class="card-body" style="padding-top:0;display:flex;gap:32px">
+      <div class="card-body" style="padding-top:0;display:flex;gap:32px;flex-wrap:wrap">
         <div><span style="font-size:22px;font-weight:700;color:var(--danger)">${certsVencidos}</span> <span style="font-size:13px;color:#6B7280">vencido${certsVencidos===1?'':'s'}</span></div>
         <div><span style="font-size:22px;font-weight:700;color:var(--warning)">${certsProximos}</span> <span style="font-size:13px;color:#6B7280">vencimento próximo</span></div>
+        <div><span style="font-size:22px;font-weight:700;color:var(--danger)">${certsSemAnexo}</span> <span style="font-size:13px;color:#6B7280">sem certificado anexado</span></div>
       </div>
     </div>` : ''}
     <div class="card"><div class="card-header"><div class="card-title">🚀 Próximos passos</div></div><div class="card-body"><div style="display:flex;flex-direction:column;gap:10px;font-size:13px;color:#4B5563"><div>1️⃣ Cadastre as obrigações em <strong>Configurações</strong></div><div>2️⃣ Cadastre seus clientes com honorários e obrigações</div><div>3️⃣ Acompanhe as demandas mensais e dê baixa ao concluir</div><div>4️⃣ Controle honorários e despesas no financeiro</div></div></div></div>`;
@@ -441,6 +444,7 @@ async function pagClientes() {
           <div class="modal-tab" onclick="tab(3,this)">Obrigações</div>
           <div class="modal-tab" onclick="tab(4,this)">Honorários</div>
           <div class="modal-tab" onclick="tab(5,this)">Observações</div>
+          <div class="modal-tab" onclick="tab(6,this)">Certificado Digital</div>
         </div>
         <div id="tab0">
           <div class="form-grid-2" style="margin-bottom:12px">
@@ -496,6 +500,23 @@ async function pagClientes() {
         <div id="tab5" style="display:none">
           <div class="field"><label>Observações</label><textarea id="c-obs" placeholder="Anotações importantes..."></textarea></div>
         </div>
+        <div id="tab6" style="display:none">
+          <div id="cert-tab-sem-cliente" style="display:none;color:#9CA3AF;font-size:13px;padding:8px 0 16px">Salve o cadastro primeiro para anexar o certificado digital deste cliente.</div>
+          <div id="cert-tab-conteudo">
+            <div id="cc-cert-status" style="margin-bottom:14px"></div>
+            <div class="field"><label>Arquivo do certificado</label><input type="file" id="cc-cert-arquivo"></div>
+            <div class="form-grid-2">
+              <div class="field"><label>Senha do certificado</label><input type="text" id="cc-cert-senha" placeholder="Senha"></div>
+              <div class="field"><label>Data de vencimento *</label><input type="date" id="cc-cert-vencimento"></div>
+            </div>
+            <div class="field" style="max-width:220px"><label>Data do download</label><input type="date" id="cc-cert-download"></div>
+            <div style="display:flex;gap:8px;margin-top:4px">
+              <button class="btn btn-navy btn-sm" onclick="salvarCertificadoCliente()"><i class="ti ti-check"></i> Salvar certificado</button>
+              <button class="btn btn-sm" id="cc-cert-baixar-btn" style="display:none" onclick="baixarCertificadoCliente()"><i class="ti ti-download"></i> Baixar arquivo</button>
+              <button class="btn btn-sm btn-danger" id="cc-cert-excluir-btn" style="display:none" onclick="excluirCertificadoCliente()"><i class="ti ti-trash"></i> Excluir</button>
+            </div>
+          </div>
+        </div>
         <div class="modal-footer">
           <input type="hidden" id="c-id">
           <button class="btn" onclick="fecharModal('ov-cliente')">Cancelar</button>
@@ -507,7 +528,7 @@ async function pagClientes() {
 }
 
 function tab(idx, el) {
-  [0,1,2,3,4,5].forEach(i => { const t = document.getElementById('tab'+i); if(t) t.style.display = i===idx?'block':'none'; });
+  [0,1,2,3,4,5,6].forEach(i => { const t = document.getElementById('tab'+i); if(t) t.style.display = i===idx?'block':'none'; });
   document.querySelectorAll('.modal-tab').forEach(t => t.classList.remove('active'));
   el.classList.add('active');
 }
@@ -605,6 +626,98 @@ function removerSocioTemp(i) {
   renderSociosLista();
 }
 
+// Certificado digital dentro do cadastro do cliente
+let certClienteIdAtual = null;
+let certClienteAtual = null;
+
+function renderCertTab() {
+  const semCliente = document.getElementById('cert-tab-sem-cliente');
+  const conteudo = document.getElementById('cert-tab-conteudo');
+  if (!semCliente || !conteudo) return;
+  if (!certClienteIdAtual) {
+    semCliente.style.display = 'block';
+    conteudo.style.display = 'none';
+    return;
+  }
+  semCliente.style.display = 'none';
+  conteudo.style.display = 'block';
+  const statusDiv = document.getElementById('cc-cert-status');
+  if (statusDiv) {
+    if (certClienteAtual) {
+      const st = statusCertificado(certClienteAtual.data_vencimento);
+      statusDiv.innerHTML = `<div style="font-size:12px;color:#6B7280;margin-bottom:4px">Arquivo atual: <strong>${certClienteAtual.nome_arquivo}</strong></div><span class="badge ${st.badge}">${st.label}</span>`;
+    } else {
+      statusDiv.innerHTML = `<span class="badge badge-warning">Sem certificado anexado</span>`;
+    }
+  }
+  document.getElementById('cc-cert-arquivo').value = '';
+  document.getElementById('cc-cert-senha').value = certClienteAtual?.senha || '';
+  document.getElementById('cc-cert-vencimento').value = certClienteAtual?.data_vencimento || '';
+  document.getElementById('cc-cert-download').value = certClienteAtual?.data_download || '';
+  document.getElementById('cc-cert-baixar-btn').style.display = certClienteAtual ? '' : 'none';
+  document.getElementById('cc-cert-excluir-btn').style.display = certClienteAtual ? '' : 'none';
+}
+
+async function salvarCertificadoCliente() {
+  const clienteId = certClienteIdAtual;
+  if (!clienteId) return;
+  const file = document.getElementById('cc-cert-arquivo').files[0];
+  const senha = document.getElementById('cc-cert-senha').value;
+  const dataDownload = document.getElementById('cc-cert-download').value;
+  const dataVencimento = document.getElementById('cc-cert-vencimento').value;
+  if (!file && !certClienteAtual) { toast('Escolha o arquivo do certificado!', 'error'); return; }
+  if (!dataVencimento) { toast('Informe a data de vencimento!', 'error'); return; }
+  const btn = document.querySelector('#tab6 .btn-navy');
+  const original = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader"></i> Salvando...';
+  try {
+    if (file) {
+      if (certClienteAtual) {
+        await storageFetch(`/object/certificados/${certClienteAtual.storage_path}`, { method: 'DELETE' });
+        await api(`certificados?id=eq.${certClienteAtual.id}`, 'DELETE');
+      }
+      const path = `${clienteId}/${Date.now()}-${sanitizarNomeArquivo(file.name)}`;
+      const r = await storageFetch(`/object/certificados/${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': file.type || 'application/octet-stream' },
+        body: file
+      });
+      if (!r.ok) throw new Error('falha no upload');
+      const res = await api('certificados', 'POST', { cliente_id: clienteId, nome_arquivo: file.name, storage_path: path, senha: senha || null, data_download: dataDownload || null, data_vencimento: dataVencimento });
+      certClienteAtual = res[0];
+    } else {
+      await api(`certificados?id=eq.${certClienteAtual.id}`, 'PATCH', { senha: senha || null, data_download: dataDownload || null, data_vencimento: dataVencimento });
+      certClienteAtual = { ...certClienteAtual, senha: senha || null, data_download: dataDownload || null, data_vencimento: dataVencimento };
+    }
+    toast('Certificado salvo!', 'success');
+    renderCertTab();
+  } catch (e) {
+    toast('Erro ao salvar certificado. Tente novamente.', 'error');
+  } finally {
+    btn.disabled = false; btn.innerHTML = original;
+  }
+}
+
+async function baixarCertificadoCliente() {
+  if (!certClienteAtual) return;
+  const r = await storageFetch(`/object/sign/certificados/${certClienteAtual.storage_path}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expiresIn: 3600 })
+  });
+  const data = await r.json();
+  if (data.signedURL) window.open(SB_URL + '/storage/v1' + data.signedURL, '_blank');
+  else toast('Erro ao gerar link de download.', 'error');
+}
+
+async function excluirCertificadoCliente() {
+  if (!certClienteAtual) return;
+  if (!confirm('Excluir o certificado deste cliente?')) return;
+  await storageFetch(`/object/certificados/${certClienteAtual.storage_path}`, { method: 'DELETE' });
+  await api(`certificados?id=eq.${certClienteAtual.id}`, 'DELETE');
+  certClienteAtual = null;
+  toast('Certificado excluído!', 'success');
+  renderCertTab();
+}
+
 function formatarDataBR(iso) {
   const [y,m,d] = iso.split('-');
   return `${d}/${m}/${y}`;
@@ -620,6 +733,9 @@ function abrirModalCliente() {
   document.getElementById('c-segmento').value = '';
   sociosTemp = [];
   renderSociosLista();
+  certClienteIdAtual = null;
+  certClienteAtual = null;
+  renderCertTab();
   tab(0, document.querySelector('.modal-tab'));
   carregarObrigacoesModal([]);
   document.getElementById('ov-cliente').classList.add('show');
@@ -666,6 +782,11 @@ async function editarCliente(id) {
   // Carregar sócios
   sociosTemp = await api(`socios?cliente_id=eq.${id}&select=nome,cpf,data_nascimento`);
   renderSociosLista();
+  // Carregar certificado digital
+  certClienteIdAtual = id;
+  const certs = await api(`certificados?cliente_id=eq.${id}`);
+  certClienteAtual = certs[0] || null;
+  renderCertTab();
   tab(0, document.querySelector('.modal-tab'));
   carregarObrigacoesModal(selectedIds);
   document.getElementById('ov-cliente').classList.add('show');
@@ -2345,6 +2466,7 @@ function renderLinhasCertificados(lista) {
       <td><div style="display:flex;gap:6px">
         <button class="btn btn-sm btn-navy" onclick="abrirModalCertificado('${cl.id}')"><i class="ti ti-upload"></i> ${cert?'Substituir':'Anexar'}</button>
         ${cert ? `<button class="btn btn-sm" onclick="baixarCertificado('${cl.id}')"><i class="ti ti-download"></i></button>` : ''}
+        ${cert && cert.senha ? `<button class="btn btn-sm" title="Copiar senha" onclick="copiarSenhaCertificado('${cl.id}')"><i class="ti ti-key"></i></button>` : ''}
         ${cert ? `<button class="btn btn-sm btn-danger" onclick="excluirCertificado('${cl.id}')"><i class="ti ti-trash"></i></button>` : ''}
         ${podeAlertar ? `<button class="btn btn-sm btn-success" onclick="enviarAlertaCertificado('${cl.id}')"><i class="ti ti-brand-whatsapp"></i></button>` : ''}
       </div></td>
@@ -2365,6 +2487,7 @@ function modalCertificadoHTML() {
         <div class="modal-title" id="modal-certificado-titulo">Certificado Digital</div>
         <div class="modal-sub" id="modal-certificado-sub"></div>
         <div class="field"><label>Arquivo do certificado</label><input type="file" id="cert-arquivo"></div>
+        <div class="field"><label>Senha do certificado</label><input type="text" id="cert-senha" placeholder="Senha"></div>
         <div class="form-grid-2">
           <div class="field"><label>Data do download</label><input type="date" id="cert-data-download"></div>
           <div class="field"><label>Data de vencimento *</label><input type="date" id="cert-data-vencimento"></div>
@@ -2384,35 +2507,41 @@ function abrirModalCertificado(clienteId) {
   document.getElementById('modal-certificado-titulo').textContent = certificadosMap[clienteId] ? 'Substituir certificado' : 'Anexar certificado';
   document.getElementById('modal-certificado-sub').textContent = (cl?.razao_social||'') + (certificadosMap[clienteId] ? ' — o certificado atual será substituído' : '');
   document.getElementById('cert-arquivo').value = '';
+  document.getElementById('cert-senha').value = certificadosMap[clienteId]?.senha || '';
   document.getElementById('cert-data-download').value = new Date().toISOString().split('T')[0];
-  document.getElementById('cert-data-vencimento').value = '';
+  document.getElementById('cert-data-vencimento').value = certificadosMap[clienteId]?.data_vencimento || '';
   document.getElementById('ov-certificado').classList.add('show');
 }
 
 async function salvarCertificado() {
   const clienteId = document.getElementById('cert-cliente-id').value;
   const file = document.getElementById('cert-arquivo').files[0];
+  const senha = document.getElementById('cert-senha').value;
   const dataDownload = document.getElementById('cert-data-download').value;
   const dataVencimento = document.getElementById('cert-data-vencimento').value;
-  if (!file) { toast('Escolha o arquivo do certificado!', 'error'); return; }
+  const existente = certificadosMap[clienteId];
+  if (!file && !existente) { toast('Escolha o arquivo do certificado!', 'error'); return; }
   if (!dataVencimento) { toast('Informe a data de vencimento!', 'error'); return; }
   const btn = document.querySelector('#ov-certificado .btn-navy');
   const original = btn.innerHTML;
   btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader"></i> Salvando...';
   try {
-    const existente = certificadosMap[clienteId];
-    if (existente) {
-      await storageFetch(`/object/certificados/${existente.storage_path}`, { method: 'DELETE' });
-      await api(`certificados?id=eq.${existente.id}`, 'DELETE');
+    if (file) {
+      if (existente) {
+        await storageFetch(`/object/certificados/${existente.storage_path}`, { method: 'DELETE' });
+        await api(`certificados?id=eq.${existente.id}`, 'DELETE');
+      }
+      const path = `${clienteId}/${Date.now()}-${sanitizarNomeArquivo(file.name)}`;
+      const r = await storageFetch(`/object/certificados/${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': file.type || 'application/octet-stream' },
+        body: file
+      });
+      if (!r.ok) throw new Error('falha no upload');
+      await api('certificados', 'POST', { cliente_id: clienteId, nome_arquivo: file.name, storage_path: path, senha: senha || null, data_download: dataDownload || null, data_vencimento: dataVencimento });
+    } else {
+      await api(`certificados?id=eq.${existente.id}`, 'PATCH', { senha: senha || null, data_download: dataDownload || null, data_vencimento: dataVencimento });
     }
-    const path = `${clienteId}/${Date.now()}-${sanitizarNomeArquivo(file.name)}`;
-    const r = await storageFetch(`/object/certificados/${path}`, {
-      method: 'POST',
-      headers: { 'Content-Type': file.type || 'application/octet-stream' },
-      body: file
-    });
-    if (!r.ok) throw new Error('falha no upload');
-    await api('certificados', 'POST', { cliente_id: clienteId, nome_arquivo: file.name, storage_path: path, data_download: dataDownload || null, data_vencimento: dataVencimento });
     toast('Certificado salvo!', 'success');
     fecharModal('ov-certificado');
     pagCertificados();
@@ -2421,6 +2550,12 @@ async function salvarCertificado() {
   } finally {
     btn.disabled = false; btn.innerHTML = original;
   }
+}
+
+function copiarSenhaCertificado(clienteId) {
+  const cert = certificadosMap[clienteId];
+  if (!cert?.senha) return;
+  navigator.clipboard.writeText(cert.senha).then(() => toast('Senha copiada!', 'success')).catch(() => toast('Não foi possível copiar.', 'error'));
 }
 
 async function baixarCertificado(clienteId) {

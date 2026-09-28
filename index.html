@@ -2847,7 +2847,7 @@ async function pagReceber() {
 
   const c = document.getElementById('content');
   let totalHonorarios = 0, totalSaldoDevedor = 0, totalRecebido = 0, totalSaldoFinal = 0;
-  let totalEmDia = 0, totalDuvidoso = 0;
+  let totalAbertoAtivos = 0, totalAbertoInativos = 0;
   let countQuitado = 0, countAvencer = 0, countInadimplente = 0;
   const countZerado = clientesReceberTodos.filter(cl => (cl.honorario||0) === 0).length;
   if (mesAntesDoRastreamento()) {
@@ -2867,10 +2867,11 @@ async function pagReceber() {
       if (statusLabel === 'Quitado') countQuitado++;
       else if (statusLabel === 'A vencer') countAvencer++;
       else if (statusLabel === 'Inadimplente') countInadimplente++;
-      // Separa o que é esperado de clientes em dia do que é duvidoso (já inadimplente),
-      // pra não misturar os dois num único "total a receber".
-      if (statusLabel === 'Inadimplente') totalDuvidoso += saldoFinalCliente;
-      else totalEmDia += saldoFinalCliente;
+      // Separa pelo status do CADASTRO (Ativo x Suspenso/Cancelado) — não pelo status de
+      // pagamento do mês. "Inadimplente" é outra coisa (cliente que ainda está na carteira,
+      // só atrasado) e continua contado normalmente aqui dentro de "clientes ativos".
+      if ((cl.status||'Ativo') === 'Ativo') totalAbertoAtivos += saldoFinalCliente;
+      else totalAbertoInativos += saldoFinalCliente;
     });
   }
 
@@ -2888,8 +2889,8 @@ async function pagReceber() {
       <div class="metric"><div class="metric-label">Valor da carteira</div><div class="metric-value">${fmt(totalHonorarios)}</div><div class="metric-sub">soma dos honorários cadastrados</div></div>
       <div class="metric"><div class="metric-label">Total a receber</div><div class="metric-value">${fmt(totalHonorarios+totalSaldoDevedor)}</div><div class="metric-sub">carteira + pendente de meses anteriores</div></div>
       <div class="metric"><div class="metric-label">Recebido</div><div class="metric-value" style="color:var(--success)">${fmt(totalRecebido)}</div></div>
-      <div class="metric"><div class="metric-label">Em aberto (clientes ativos)</div><div class="metric-value" style="color:var(--success)">${fmt(totalEmDia)}</div></div>
-      <div class="metric"><div class="metric-label">Em aberto (clientes inativos)</div><div class="metric-value" style="color:var(--danger)">${fmt(totalDuvidoso)}</div></div>
+      <div class="metric"><div class="metric-label">Em aberto (clientes ativos)</div><div class="metric-value" style="color:var(--success)">${fmt(totalAbertoAtivos)}</div></div>
+      <div class="metric"><div class="metric-label">Em aberto (clientes inativos)</div><div class="metric-value" style="color:var(--danger)">${fmt(totalAbertoInativos)}</div></div>
       <div class="metric"><div class="metric-label">Inadimplentes</div><div class="metric-value" style="color:var(--danger)">${countInadimplente}</div></div>
     </div>
     <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">

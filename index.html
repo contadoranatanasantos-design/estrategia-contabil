@@ -63,6 +63,7 @@
     }
     .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
     .grid-5 { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 24px; }
+    .grid-6 { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 24px; }
     .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
     .metric { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; border-left: 3px solid var(--gold); }
     .metric-label { font-size: 11px; color: var(--text-muted); margin-bottom: 6px; }
@@ -393,12 +394,30 @@ function renderLinhasClientes(lista) {
     <td><span class="badge badge-info">${cl.regime||'—'}</span></td>
     <td>${cl.segmento||'—'}</td>
     <td>${fmt(cl.honorario)}</td>
-    <td><span class="badge ${cl.status==='Ativo'?'badge-success':'badge-warning'}">${cl.status||'Ativo'}</span></td>
+    <td><span class="badge ${cl.status==='Cancelado'?'badge-danger':cl.status==='Suspenso'?'badge-warning':'badge-success'}">${cl.status||'Ativo'}</span></td>
     <td><div style="display:flex;gap:6px">
       <button class="btn btn-sm" onclick="editarCliente('${cl.id}')"><i class="ti ti-edit"></i></button>
       <button class="btn btn-sm btn-danger" onclick="excluirCliente('${cl.id}','${cl.razao_social}')"><i class="ti ti-trash"></i></button>
     </div></td>
   </tr>`).join('');
+}
+
+let filtroClienteStatus = 'ativos';
+
+function clientePassaFiltroStatus(cl) {
+  if (filtroClienteStatus === 'todos') return true;
+  const st = cl.status || 'Ativo';
+  if (filtroClienteStatus === 'ativos') return st === 'Ativo';
+  if (filtroClienteStatus === 'suspensos') return st === 'Suspenso';
+  if (filtroClienteStatus === 'cancelados') return st === 'Cancelado';
+  return true;
+}
+
+function definirFiltroClienteStatus(f) {
+  filtroClienteStatus = f;
+  document.querySelectorAll('.filtro-cliente-status-btn').forEach(b => b.classList.remove('btn-navy'));
+  document.getElementById('filtro-cliente-status-'+f).classList.add('btn-navy');
+  filtrarClientes();
 }
 
 function filtrarClientes() {
@@ -407,18 +426,28 @@ function filtrarClientes() {
   const filtrados = clientesTodos.filter(cl => {
     const alvo = `${cl.razao_social||''} ${cl.nome_fantasia||''}`.toLowerCase();
     const cnpjDigitos = (cl.cnpj||'').replace(/\D/g, '');
-    return alvo.includes(termo) || (termoDigitos && cnpjDigitos.includes(termoDigitos));
+    return (alvo.includes(termo) || (termoDigitos && cnpjDigitos.includes(termoDigitos))) && clientePassaFiltroStatus(cl);
   });
   document.getElementById('tb-clientes').innerHTML = renderLinhasClientes(filtrados);
 }
 
 async function pagClientes() {
   clientesTodos = await api('clientes?select=*&order=razao_social');
+  filtroClienteStatus = 'ativos';
+  const countAtivos = clientesTodos.filter(c => (c.status||'Ativo')==='Ativo').length;
+  const countSuspensos = clientesTodos.filter(c => c.status==='Suspenso').length;
+  const countCancelados = clientesTodos.filter(c => c.status==='Cancelado').length;
   const c = document.getElementById('content');
   c.innerHTML = `
     <div class="page-header">
       <div class="page-header-title">Carteira de Clientes (${clientesTodos.length})</div>
       <button class="btn btn-navy" onclick="abrirModalCliente()"><i class="ti ti-plus"></i> Novo cliente</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+      <button class="btn btn-sm filtro-cliente-status-btn btn-navy" id="filtro-cliente-status-ativos" onclick="definirFiltroClienteStatus('ativos')">Ativos (${countAtivos})</button>
+      <button class="btn btn-sm filtro-cliente-status-btn" id="filtro-cliente-status-suspensos" onclick="definirFiltroClienteStatus('suspensos')">Suspensos (${countSuspensos})</button>
+      <button class="btn btn-sm filtro-cliente-status-btn" id="filtro-cliente-status-cancelados" onclick="definirFiltroClienteStatus('cancelados')">Cancelados (${countCancelados})</button>
+      <button class="btn btn-sm filtro-cliente-status-btn" id="filtro-cliente-status-todos" onclick="definirFiltroClienteStatus('todos')">Todos (${clientesTodos.length})</button>
     </div>
     <div class="field" style="max-width:360px;margin-bottom:16px">
       <div style="position:relative">
@@ -429,7 +458,7 @@ async function pagClientes() {
     <div class="card">
       <table class="table">
         <thead><tr><th>Empresa</th><th>CNPJ</th><th>Regime</th><th>Segmento</th><th>Honorários</th><th>Status</th><th>Ações</th></tr></thead>
-        <tbody id="tb-clientes">${renderLinhasClientes(clientesTodos)}</tbody>
+        <tbody id="tb-clientes">${renderLinhasClientes(clientesTodos.filter(clientePassaFiltroStatus))}</tbody>
       </table>
     </div>
     <!-- MODAL CLIENTE -->
@@ -452,6 +481,7 @@ async function pagClientes() {
             <div class="field"><label>Nome fantasia</label><input id="c-fantasia" placeholder="Nome fantasia"></div>
             <div class="field"><label>Regime tributário</label><select id="c-regime"><option>Simples Nacional</option><option>Lucro Presumido</option><option>Lucro Real</option><option>MEI</option></select></div>
             <div class="field"><label>Segmento</label><select id="c-segmento"><option value="">Selecione...</option><option>Comércio</option><option>Serviço</option><option>Indústria</option><option>Comércio/Serviço</option></select></div>
+            <div class="field"><label>Status do cliente</label><select id="c-status" onchange="avisarMudancaStatus()"><option>Ativo</option><option>Suspenso</option><option>Cancelado</option></select><div id="status-aviso" style="font-size:11px;margin-top:2px;color:var(--warning)"></div></div>
             <div class="field"><label>CNPJ</label><input id="c-cnpj" placeholder="00.000.000/0001-00" onblur="buscarCNPJ()"><div id="cnpj-status" style="font-size:11px;margin-top:2px"></div></div>
             <div class="field"><label>Inscrição estadual</label><input id="c-ie" placeholder="Inscrição estadual"></div>
             <div class="field"><label>Inscrição municipal</label><input id="c-im" placeholder="Inscrição municipal"></div>
@@ -626,6 +656,23 @@ function removerSocioTemp(i) {
   renderSociosLista();
 }
 
+// Status do cliente dentro do cadastro
+let statusOriginalCliente = 'Ativo';
+
+function avisarMudancaStatus() {
+  const aviso = document.getElementById('status-aviso');
+  if (!aviso) return;
+  const novo = document.getElementById('c-status').value;
+  if (novo === statusOriginalCliente) { aviso.textContent = ''; return; }
+  if (statusOriginalCliente === 'Ativo' && novo !== 'Ativo') {
+    aviso.textContent = `O honorário mensal vai parar de contar a partir de ${meses[mesSel]}/${anoSel}. O que já está em aberto continua em Contas a Receber.`;
+  } else if (statusOriginalCliente !== 'Ativo' && novo === 'Ativo') {
+    aviso.textContent = `O honorário mensal volta a contar a partir de ${meses[mesSel]}/${anoSel}.`;
+  } else {
+    aviso.textContent = '';
+  }
+}
+
 // Certificado digital dentro do cadastro do cliente
 let certClienteIdAtual = null;
 let certClienteAtual = null;
@@ -731,6 +778,9 @@ function abrirModalCliente() {
   const saldoIni = document.getElementById('c-saldo-inicial'); if(saldoIni) saldoIni.value='';
   const cnpjStatus = document.getElementById('cnpj-status'); if(cnpjStatus) cnpjStatus.textContent='';
   document.getElementById('c-segmento').value = '';
+  document.getElementById('c-status').value = 'Ativo';
+  statusOriginalCliente = 'Ativo';
+  const statusAviso = document.getElementById('status-aviso'); if(statusAviso) statusAviso.textContent='';
   sociosTemp = [];
   renderSociosLista();
   certClienteIdAtual = null;
@@ -763,6 +813,9 @@ async function editarCliente(id) {
   document.getElementById('c-obs').value = cl.observacoes||'';
   document.getElementById('c-regime').value = cl.regime||'Simples Nacional';
   document.getElementById('c-segmento').value = cl.segmento||'';
+  document.getElementById('c-status').value = cl.status||'Ativo';
+  statusOriginalCliente = cl.status||'Ativo';
+  const statusAviso = document.getElementById('status-aviso'); if(statusAviso) statusAviso.textContent='';
   document.getElementById('c-venc').value = cl.dia_vencimento||'5';
   document.getElementById('c-cobranca').value = cl.forma_cobranca||'PIX';
   document.getElementById('c-cep').value = cl.cep||'';
@@ -808,8 +861,20 @@ async function registrarHistoricoHonorarioSeMudou(clienteId, clienteAntigo, hono
     }
     await api('historico_honorario', 'POST', { cliente_id: clienteId, valor: clienteAntigo.honorario||0, mes: mesAntigo, ano: anoAntigo });
   }
-  // Registra o valor NOVO valendo a partir do mês/ano selecionado agora no sistema.
+  // Registra o valor NOVO valendo a partir do mês/ano selecionado agora no sistema. Remove
+  // antes qualquer registro já existente pro mesmo cliente/mês/ano, pra não deixar duas
+  // entradas no mesmo mês (a ordem entre elas fica ambígua na hora de ler qual vale).
+  await api(`historico_honorario?cliente_id=eq.${clienteId}&mes=eq.${mesSel}&ano=eq.${anoSel}`, 'DELETE');
   await api('historico_honorario', 'POST', { cliente_id: clienteId, valor: honorarioNovo, mes: mesSel, ano: anoSel });
+}
+
+// Quando o cliente sai de "Ativo" (Suspenso/Cancelado) ou volta pra "Ativo", pausa ou retoma
+// a contagem do honorário mensal a partir do mês selecionado no sistema — sem apagar o valor
+// de referência do cadastro, pra poder retomar depois com o mesmo valor de antes.
+async function registrarMudancaStatusHonorario(clienteId, dados) {
+  const valor = dados.status !== 'Ativo' ? 0 : (dados.honorario||0);
+  await api(`historico_honorario?cliente_id=eq.${clienteId}&mes=eq.${mesSel}&ano=eq.${anoSel}`, 'DELETE');
+  await api('historico_honorario', 'POST', { cliente_id: clienteId, valor, mes: mesSel, ano: anoSel });
 }
 
 async function salvarCliente() {
@@ -846,15 +911,20 @@ async function salvarCliente() {
     cnae_codigo: document.getElementById('c-cnae-codigo').value,
     cnae_descricao: document.getElementById('c-cnae-descricao').value,
     cnaes_secundarios: document.getElementById('c-cnaes-secundarios').value,
-    status: 'Ativo'
+    status: document.getElementById('c-status').value || 'Ativo'
   };
   let clienteId = id;
   if (id) {
-    const clienteAntigo = (await api(`clientes?id=eq.${id}&select=honorario,data_inicio`))[0];
+    const clienteAntigo = (await api(`clientes?id=eq.${id}&select=honorario,data_inicio,status`))[0];
     await api(`clientes?id=eq.${id}`, 'PATCH', dados);
     await api(`cliente_obrigacoes?cliente_id=eq.${id}`, 'DELETE');
     await api(`socios?cliente_id=eq.${id}`, 'DELETE');
-    await registrarHistoricoHonorarioSeMudou(id, clienteAntigo, dados.honorario);
+    const statusAntigo = clienteAntigo?.status || 'Ativo';
+    if (statusAntigo !== dados.status && (statusAntigo === 'Ativo' || dados.status === 'Ativo')) {
+      await registrarMudancaStatusHonorario(id, dados);
+    } else {
+      await registrarHistoricoHonorarioSeMudou(id, clienteAntigo, dados.honorario);
+    }
   } else {
     const res = await api('clientes', 'POST', dados);
     clienteId = res[0]?.id;
@@ -2712,7 +2782,7 @@ function renderLinhasReceber(lista) {
     const saldoFinal = Math.max(0, saldoEmAberto - recebido);
     const status = statusHonorario(cl, recebido, saldoDevedor);
     return `<tr>
-      <td style="font-weight:500">${cl.razao_social}${pag ? `<br><span style="font-size:11px;color:#9CA3AF">Recebido em ${pag.data_recebimento||'—'}${pag.valor_servico_extra ? ` · +${fmt(pag.valor_servico_extra)} serviço extra` : ''}${pag.observacao ? ` · 📝 ${pag.observacao}` : ''}</span>` : ''}</td>
+      <td style="font-weight:500">${cl.razao_social}${cl.status&&cl.status!=='Ativo'?` <span class="badge ${cl.status==='Cancelado'?'badge-danger':'badge-warning'}">${cl.status}</span>`:''}${pag ? `<br><span style="font-size:11px;color:#9CA3AF">Recebido em ${pag.data_recebimento||'—'}${pag.valor_servico_extra ? ` · +${fmt(pag.valor_servico_extra)} serviço extra` : ''}${pag.observacao ? ` · 📝 ${pag.observacao}` : ''}</span>` : ''}</td>
       <td>${fmt(cl.honorario)}</td>
       <td>${saldoDevedor > 0 ? `<span style="color:var(--danger);font-weight:500">${fmt(saldoDevedor)}</span>` : fmt(0)}</td>
       <td>${fmt(saldoEmAberto)}</td>
@@ -2760,16 +2830,24 @@ function filtrarReceber() {
 }
 
 async function pagReceber() {
-  clientesReceberTodos = await api('clientes?status=eq.Ativo&select=*&order=razao_social');
+  // Busca todo mundo (não só "Ativo") pra não esconder saldo devedor de quem foi
+  // suspenso/cancelado ainda devendo — o honorário desses só não soma mais nada novo.
+  const todosClientesReceber = await api('clientes?select=*&order=razao_social');
   pagamentosReceberTodos = await api(`honorarios_pagamentos?mes=eq.${mesSel}&ano=eq.${anoSel}`);
   pagamentosReceberHistorico = await api('honorarios_pagamentos?select=cliente_id,mes,ano,valor_recebido');
   historicoHonorarioTodos = await api('historico_honorario?select=cliente_id,valor,mes,ano');
   saldoDevedorMap = {};
-  clientesReceberTodos.forEach(cl => { saldoDevedorMap[cl.id] = calcularSaldoDevedor(cl); });
+  todosClientesReceber.forEach(cl => { saldoDevedorMap[cl.id] = calcularSaldoDevedor(cl); });
+  // Só DEPOIS de calcular o saldo devedor (que precisa do honorário original de cada mês
+  // passado) troca cl.honorario pelo valor efetivamente vigente no mês selecionado — é o que
+  // aparece na tela e respeita a pausa/retomada por status.
+  todosClientesReceber.forEach(cl => { cl.honorario = honorarioNoMes(cl, mesSel, anoSel); });
+  clientesReceberTodos = todosClientesReceber.filter(cl => (cl.status||'Ativo') === 'Ativo' || saldoDevedorMap[cl.id] > 0);
   filtroReceberAtivo = 'todos';
 
   const c = document.getElementById('content');
   let totalHonorarios = 0, totalSaldoDevedor = 0, totalRecebido = 0, totalSaldoFinal = 0;
+  let totalEmDia = 0, totalDuvidoso = 0;
   let countQuitado = 0, countAvencer = 0, countInadimplente = 0;
   const countZerado = clientesReceberTodos.filter(cl => (cl.honorario||0) === 0).length;
   if (mesAntesDoRastreamento()) {
@@ -2780,14 +2858,19 @@ async function pagReceber() {
       const recebido = pag?.valor_recebido || 0;
       const saldoDevedor = saldoDevedorMap[cl.id] || 0;
       const saldoEmAberto = (cl.honorario||0) + saldoDevedor;
+      const saldoFinalCliente = Math.max(0, saldoEmAberto - recebido);
       totalHonorarios += (cl.honorario||0);
       totalSaldoDevedor += saldoDevedor;
       totalRecebido += recebido;
-      totalSaldoFinal += Math.max(0, saldoEmAberto - recebido);
+      totalSaldoFinal += saldoFinalCliente;
       const statusLabel = statusHonorario(cl, recebido, saldoDevedor).label;
       if (statusLabel === 'Quitado') countQuitado++;
       else if (statusLabel === 'A vencer') countAvencer++;
       else if (statusLabel === 'Inadimplente') countInadimplente++;
+      // Separa o que é esperado de clientes em dia do que é duvidoso (já inadimplente),
+      // pra não misturar os dois num único "total a receber".
+      if (statusLabel === 'Inadimplente') totalDuvidoso += saldoFinalCliente;
+      else totalEmDia += saldoFinalCliente;
     });
   }
 
@@ -2801,11 +2884,12 @@ async function pagReceber() {
         <input type="number" value="${anoSel}" onchange="anoSel=parseInt(this.value);pagReceber()" style="height:36px;width:80px;padding:0 10px;border-radius:8px;border:1px solid #E5E7EB;font-size:13px">
       </div>
     </div>
-    <div class="grid-5">
+    <div class="grid-6">
       <div class="metric"><div class="metric-label">Valor da carteira</div><div class="metric-value">${fmt(totalHonorarios)}</div><div class="metric-sub">soma dos honorários cadastrados</div></div>
       <div class="metric"><div class="metric-label">Total a receber</div><div class="metric-value">${fmt(totalHonorarios+totalSaldoDevedor)}</div><div class="metric-sub">carteira + pendente de meses anteriores</div></div>
       <div class="metric"><div class="metric-label">Recebido</div><div class="metric-value" style="color:var(--success)">${fmt(totalRecebido)}</div></div>
-      <div class="metric"><div class="metric-label">Em aberto</div><div class="metric-value" style="color:var(--danger)">${fmt(totalSaldoFinal)}</div></div>
+      <div class="metric"><div class="metric-label">Em aberto (clientes ativos)</div><div class="metric-value" style="color:var(--success)">${fmt(totalEmDia)}</div></div>
+      <div class="metric"><div class="metric-label">Em aberto (clientes inativos)</div><div class="metric-value" style="color:var(--danger)">${fmt(totalDuvidoso)}</div></div>
       <div class="metric"><div class="metric-label">Inadimplentes</div><div class="metric-value" style="color:var(--danger)">${countInadimplente}</div></div>
     </div>
     <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">

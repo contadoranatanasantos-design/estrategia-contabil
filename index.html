@@ -999,7 +999,10 @@ async function renderDemandasCalendario() {
   const clienteObs = await api('cliente_obrigacoes?select=cliente_id,obrigacao_id');
   const demandasFeitas = await api(`demandas?mes=eq.${mesSel}&ano=eq.${anoSel}&feito=eq.true&select=cliente_id,obrigacao_id`);
   const feitoSet = new Set(demandasFeitas.map(d => d.cliente_id+'-'+d.obrigacao_id));
-  const stats = {};
+  // Guarda nas variáveis globais (mesmas usadas em "Por obrigação") pra poder reaproveitar
+  // renderCardsObrigacoesDemandas() na lista filtrada do dia clicado.
+  obrigacoesTodasDemandas = obrigacoes;
+  const stats = statsObrigacoesDemandas = {};
   obrigacoes.forEach(ob => { stats[ob.id] = { total: 0, feitos: 0 }; });
   clienteObs.forEach(co => {
     if (!stats[co.obrigacao_id]) return;
@@ -1022,12 +1025,13 @@ async function renderDemandasCalendario() {
   for (let dia = 1; dia <= totalDias; dia++) {
     const ehHoje = hoje.getFullYear()===anoSel && hoje.getMonth()===mesSel && hoje.getDate()===dia;
     const obsHoje = porDia[dia] || [];
-    celulas += `<div style="background:#fff;border:1px solid var(--border);${ehHoje?'border-color:var(--gold);border-width:2px;':''}border-radius:8px;min-height:96px;padding:6px;display:flex;flex-direction:column;gap:4px">
+    const temObrig = obsHoje.length > 0;
+    celulas += `<div ${temObrig?`onclick="abrirObrigacoesDoDia(${dia})" style="cursor:pointer;background:#fff;border:1px solid var(--border);${ehHoje?'border-color:var(--gold);border-width:2px;':''}border-radius:8px;min-height:96px;padding:6px;display:flex;flex-direction:column;gap:4px"`:`style="background:#fff;border:1px solid var(--border);${ehHoje?'border-color:var(--gold);border-width:2px;':''}border-radius:8px;min-height:96px;padding:6px;display:flex;flex-direction:column;gap:4px"`}>
       <div style="font-size:12px;font-weight:600;color:${ehHoje?'var(--gold)':'var(--navy)'}">${dia}</div>
       ${obsHoje.map(ob => {
         const s = stats[ob.id] || { total: 0, feitos: 0 };
         const pend = s.total - s.feitos;
-        return `<div onclick="verDemanda('${ob.id}','${ob.nome.replace(/'/g,"\\'")}')" title="${ob.nome}" style="cursor:pointer;font-size:10.5px;background:${pend>0?'#FEF3C7':'#DCFCE7'};color:${pend>0?'#92400E':'#166534'};padding:2px 6px;border-radius:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${ob.nome}</div>`;
+        return `<div onclick="event.stopPropagation();verDemanda('${ob.id}','${ob.nome.replace(/'/g,"\\'")}')" title="${ob.nome}" style="cursor:pointer;font-size:10.5px;background:${pend>0?'#FEF3C7':'#DCFCE7'};color:${pend>0?'#92400E':'#166534'};padding:2px 6px;border-radius:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${ob.nome}</div>`;
       }).join('')}
     </div>`;
   }
@@ -1044,7 +1048,24 @@ async function renderDemandasCalendario() {
           <div style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:3px;background:#DCFCE7;display:inline-block"></span> Tudo feito</div>
         </div>
       </div>
+    </div>
+    <div class="overlay" id="ov-dia-obrigacoes">
+      <div class="modal" style="width:640px">
+        <div class="modal-title" id="modal-dia-titulo">Obrigações do dia</div>
+        <div class="modal-sub">Clique numa obrigação pra ver/dar baixa nas empresas</div>
+        <div id="modal-dia-conteudo"></div>
+        <div class="modal-footer">
+          <button class="btn" onclick="fecharModal('ov-dia-obrigacoes')">Fechar</button>
+        </div>
+      </div>
     </div>`;
+}
+
+function abrirObrigacoesDoDia(dia) {
+  const obsHoje = obrigacoesTodasDemandas.filter(ob => diaObrigacaoNoMes(ob.prazo, mesSel) === dia);
+  document.getElementById('modal-dia-titulo').textContent = `Obrigações de ${String(dia).padStart(2,'0')}/${String(mesSel+1).padStart(2,'0')}/${anoSel}`;
+  document.getElementById('modal-dia-conteudo').innerHTML = renderCardsObrigacoesDemandas(obsHoje);
+  document.getElementById('ov-dia-obrigacoes').classList.add('show');
 }
 
 function statusPrazoObrigacao(ob, s) {

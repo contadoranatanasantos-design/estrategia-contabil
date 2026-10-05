@@ -1294,6 +1294,7 @@ async function verDemanda(obId, obNome) {
   const obDados = (await api(`obrigacoes?id=eq.${obId}&select=precisa_nf`))[0];
   const precisaNf = !!obDados?.precisa_nf;
   const clienteObs = await api(`cliente_obrigacoes?obrigacao_id=eq.${obId}&select=cliente_id,clientes(id,razao_social)`);
+  clienteObs.sort((a,b) => (a.clientes?.razao_social||'').localeCompare(b.clientes?.razao_social||'', 'pt-BR'));
   const demandas = await api(`demandas?obrigacao_id=eq.${obId}&mes=eq.${mesSel}&ano=eq.${anoSel}`);
   const notas = precisaNf ? await api(`demanda_notas?obrigacao_id=eq.${obId}&mes=eq.${mesSel}&ano=eq.${anoSel}&order=created_at`) : [];
   const notasPorCliente = {};
@@ -1326,7 +1327,13 @@ async function verDemanda(obId, obNome) {
         </div>
       </div>
       <div style="padding:12px 20px;font-weight:600;color:var(--navy);border-top:1px solid var(--border)">✅ Empresas COM esta obrigação (${total})</div>
-      ${total > 0 ? `<div class="no-print" style="display:flex;align-items:center;gap:8px;padding:0 20px 12px;flex-wrap:wrap">
+      ${total > 0 ? `<div class="no-print" style="padding:0 20px 10px;max-width:380px">
+        <div style="position:relative">
+          <i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#9CA3AF"></i>
+          <input id="busca-demanda-empresa" placeholder="Buscar empresa..." oninput="filtrarEmpresasDemanda()" style="height:38px;padding:0 10px 0 34px;border-radius:8px;border:1.5px solid #E5E7EB;font-size:13px;width:100%">
+        </div>
+      </div>
+      <div class="no-print" style="display:flex;align-items:center;gap:8px;padding:0 20px 12px;flex-wrap:wrap">
         <span id="barra-demanda-texto" style="font-size:13px;color:#6B7280;margin-right:4px">Marque as empresas na tabela para dar baixa de uma vez</span>
         <button class="btn btn-sm btn-success" onclick="marcarSelecionadasDemanda(true,'${obId}','${obNome.replace(/'/g,"\\'")}')"><i class="ti ti-check"></i> Marcar selecionadas como Feito</button>
         <button class="btn btn-sm" onclick="marcarSelecionadasDemanda(false,'${obId}','${obNome.replace(/'/g,"\\'")}')"><i class="ti ti-clock"></i> Voltar para Pendente</button>
@@ -1483,17 +1490,31 @@ function fecharNotasCliente() {
   verDemanda(obId, obNome);
 }
 
+function linhasDemandaVisiveis() {
+  return [...document.querySelectorAll('.sel-demanda')].filter(c => c.closest('tr').style.display !== 'none');
+}
+
+function filtrarEmpresasDemanda() {
+  const termo = document.getElementById('busca-demanda-empresa').value.trim().toLowerCase();
+  document.querySelectorAll('.sel-demanda').forEach(c => {
+    const tr = c.closest('tr');
+    tr.style.display = tr.children[1].textContent.toLowerCase().includes(termo) ? '' : 'none';
+  });
+  atualizarBarraDemanda();
+}
+
 function atualizarBarraDemanda() {
-  const todas = [...document.querySelectorAll('.sel-demanda')];
-  const marcadas = todas.filter(c => c.checked).length;
+  const visiveis = linhasDemandaVisiveis();
+  const marcadasVisiveis = visiveis.filter(c => c.checked).length;
+  const marcadas = document.querySelectorAll('.sel-demanda:checked').length;
   const master = document.getElementById('sel-todas-demanda');
-  if (master) { master.checked = todas.length > 0 && marcadas === todas.length; master.indeterminate = marcadas > 0 && marcadas < todas.length; }
+  if (master) { master.checked = visiveis.length > 0 && marcadasVisiveis === visiveis.length; master.indeterminate = marcadasVisiveis > 0 && marcadasVisiveis < visiveis.length; }
   const texto = document.getElementById('barra-demanda-texto');
   if (texto) texto.textContent = marcadas > 0 ? `${marcadas} selecionada(s)` : 'Marque as empresas na tabela para dar baixa de uma vez';
 }
 
 function selecionarTodasDemanda(marcar) {
-  document.querySelectorAll('.sel-demanda').forEach(c => { c.checked = marcar; });
+  linhasDemandaVisiveis().forEach(c => { c.checked = marcar; });
   atualizarBarraDemanda();
 }
 

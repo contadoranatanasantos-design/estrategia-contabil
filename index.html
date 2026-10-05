@@ -1373,9 +1373,10 @@ async function verDemanda(obId, obNome) {
           <label>Mensagem <span style="font-weight:400;color:#9CA3AF">— use {empresa} e {competencia} que o sistema troca por cliente</span></label>
           <textarea id="lembrete-msg" rows="6" oninput="salvarMensagemLembrete()"></textarea>
         </div>
-        <div id="lembrete-img-area" style="display:none;align-items:center;gap:12px;margin-bottom:12px;padding:10px;background:#F9FAFB;border:1px solid var(--border);border-radius:8px">
-          <img id="lembrete-img" style="height:64px;border-radius:6px;border:1px solid var(--border)">
-          <div style="font-size:12px;color:#4B5563"><b>Imagem anexada:</b> "Envio de documentos". Ao clicar em Abrir WhatsApp ela é copiada automaticamente — na conversa é só dar <b>Ctrl+V</b> e enviar.</div>
+        <div id="lembrete-img-area" style="display:flex;align-items:center;gap:12px;margin-bottom:12px;padding:10px;background:#F9FAFB;border:1px solid var(--border);border-radius:8px">
+          <img id="lembrete-img" style="height:64px;border-radius:6px;border:1px solid var(--border);display:none">
+          <div style="font-size:12px;color:#4B5563;flex:1" id="lembrete-img-texto"></div>
+          <label class="btn btn-sm" style="cursor:pointer"><i class="ti ti-photo"></i> <span id="lembrete-img-botao">Escolher imagem</span><input type="file" accept="image/*" style="display:none" onchange="escolherImagemLembrete(this)"></label>
         </div>
         <div id="lembrete-resumo" style="font-size:13px;color:#4B5563;margin-bottom:8px"></div>
         <div style="max-height:300px;overflow-y:auto"><table class="table"><thead><tr><th>Cliente</th><th>Telefone</th><th></th></tr></thead><tbody id="lembrete-linhas"></tbody></table></div>
@@ -1497,6 +1498,39 @@ function mensagemLembretePadrao() {
   return 'Olá! Tudo bem? Segue o lembrete de envio dos documentos de {competencia} da {empresa}.';
 }
 
+function mostrarImagemLembrete(dataUrl) {
+  const img = document.getElementById('lembrete-img');
+  img.style.display = dataUrl ? 'block' : 'none';
+  if (dataUrl) img.src = dataUrl;
+  document.getElementById('lembrete-img-texto').innerHTML = dataUrl
+    ? '<b>Imagem anexada.</b> Ao clicar em Abrir WhatsApp ela é copiada automaticamente — na conversa é só dar <b>Ctrl+V</b> e Enter.'
+    : 'Nenhuma imagem anexada. Escolha o flyer no seu computador (só precisa fazer uma vez).';
+  document.getElementById('lembrete-img-botao').textContent = dataUrl ? 'Trocar imagem' : 'Escolher imagem';
+}
+
+function escolherImagemLembrete(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const leitor = new FileReader();
+  leitor.onload = () => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+      canvas.getContext('2d').drawImage(img, 0, 0);
+      canvas.toBlob(blob => {
+        window._lembrete.imgBlob = blob;
+        const dataUrl = canvas.toDataURL('image/png');
+        try { localStorage.setItem('lembrete_img', dataUrl); } catch (e) { toast('Imagem muito grande para guardar — vai valer só até fechar o sistema.', 'error'); }
+        mostrarImagemLembrete(dataUrl);
+      }, 'image/png');
+    };
+    img.src = leitor.result;
+  };
+  leitor.readAsDataURL(file);
+  input.value = '';
+}
+
 async function copiarImagemLembrete() {
   const blob = window._lembrete?.imgBlob;
   if (!blob) return false;
@@ -1520,7 +1554,9 @@ function renderLinhasLembrete() {
       <td>${cl.razao_social}</td>
       <td>${tel ? cl.telefone : '<span style="color:var(--danger)">sem telefone</span>'}</td>
       <td>${cl.feito
-        ? '<span style="color:var(--success);font-size:13px"><i class="ti ti-check"></i> Feito</span>'
+        ? `<div style="display:flex;align-items:center;gap:8px"><span style="color:var(--success);font-size:13px"><i class="ti ti-check"></i> Feito</span>
+            <button class="btn btn-sm" onclick="abrirWhatsLembrete('${cl.id}')"><i class="ti ti-refresh"></i> Reenviar</button>
+            <button class="btn btn-sm" onclick="desfazerLembrete('${cl.id}')">Desfazer</button></div>`
         : tel ? `<button class="btn btn-sm btn-navy" onclick="abrirWhatsLembrete('${cl.id}')"><i class="ti ti-brand-whatsapp"></i> Abrir WhatsApp</button>`
               : '<span style="color:#9CA3AF;font-size:12px">cadastre o telefone</span>'}</td>
     </tr>`;
@@ -1534,17 +1570,10 @@ async function abrirLembreteObrig(obId, obNome) {
   const clientes = vinculos.filter(v => v.clientes).map(v => ({ id: v.clientes.id, razao_social: v.clientes.razao_social, telefone: v.clientes.telefone, feito: feitoSet.has(v.clientes.id) }))
     .sort((a,b) => (a.razao_social||'').localeCompare(b.razao_social||''));
   window._lembrete = { obId, obNome, clientes, imgBlob: null };
-  const imgArea = document.getElementById('lembrete-img-area');
-  imgArea.style.display = 'none';
-  try {
-    const r = await fetch('lembrete-documentos.png');
-    if (r.ok) {
-      const blob = await r.blob();
-      window._lembrete.imgBlob = blob.type === 'image/png' ? blob : new Blob([blob], { type: 'image/png' });
-      document.getElementById('lembrete-img').src = URL.createObjectURL(blob);
-      imgArea.style.display = 'flex';
-    }
-  } catch (e) {}
+  let dataUrl = null;
+  try { dataUrl = localStorage.getItem('lembrete_img'); } catch (e) {}
+  if (dataUrl) window._lembrete.imgBlob = await (await fetch(dataUrl)).blob();
+  mostrarImagemLembrete(dataUrl);
   let msg = mensagemLembretePadrao();
   try { msg = localStorage.getItem('lembrete_msg_' + obId) || msg; } catch (e) {}
   document.getElementById('lembrete-msg').value = msg;
@@ -1564,11 +1593,22 @@ async function abrirWhatsLembrete(clienteId) {
   const copiou = await copiarImagemLembrete();
   window.open(`whatsapp://send?phone=${numero}&text=${encodeURIComponent(mensagem)}`, '_blank');
   if (window._lembrete.imgBlob) toast(copiou ? 'Imagem copiada — dê Ctrl+V na conversa do WhatsApp' : 'Não consegui copiar a imagem automaticamente', copiou ? 'success' : 'error');
+  if (cl.feito) return;
   const existing = await api(`demandas?cliente_id=eq.${clienteId}&obrigacao_id=eq.${obId}&mes=eq.${mesSel}&ano=eq.${anoSel}`);
   const hoje = new Date().toISOString().split('T')[0];
   if (existing.length > 0) await api(`demandas?id=eq.${existing[0].id}`, 'PATCH', { feito: true, data_conclusao: hoje });
   else await api('demandas', 'POST', { cliente_id: clienteId, obrigacao_id: obId, mes: mesSel, ano: anoSel, feito: true, data_conclusao: hoje });
   cl.feito = true;
+  renderLinhasLembrete();
+}
+
+async function desfazerLembrete(clienteId) {
+  const { obId, clientes } = window._lembrete;
+  const cl = clientes.find(c => c.id === clienteId);
+  if (!cl) return;
+  const existing = await api(`demandas?cliente_id=eq.${clienteId}&obrigacao_id=eq.${obId}&mes=eq.${mesSel}&ano=eq.${anoSel}`);
+  if (existing.length > 0) await api(`demandas?id=eq.${existing[0].id}`, 'PATCH', { feito: false, data_conclusao: null });
+  cl.feito = false;
   renderLinhasLembrete();
 }
 

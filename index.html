@@ -1315,6 +1315,7 @@ async function verDemanda(obId, obNome) {
         <div style="font-weight:600;color:var(--navy);font-size:15px">${obNome} — ${meses[mesSel]} ${anoSel}</div>
         <div style="display:flex;align-items:center;gap:14px">
           <div style="font-size:13px;color:#9CA3AF">${feitos}/${total} concluídos · ${pct}%</div>
+          <button class="btn btn-sm no-print" onclick="abrirLembreteObrig('${obId}','${obNome.replace(/'/g,"\\'")}')"><i class="ti ti-brand-whatsapp"></i> Lembrete WhatsApp</button>
           <button class="btn btn-sm btn-navy no-print" onclick="abrirGerenciarEmpresasObrig('${obId}','${obNome.replace(/'/g,"\\'")}')"><i class="ti ti-building"></i> Gerenciar empresas</button>
           <button class="btn btn-sm no-print" onclick="window.print()"><i class="ti ti-printer"></i> Imprimir</button>
         </div>
@@ -1363,6 +1364,24 @@ async function verDemanda(obId, obNome) {
           semObrigacao.map(cl => `<tr><td style="font-weight:500">${cl.razao_social}</td></tr>`).join('')}
         </tbody>
       </table>
+    </div>
+    <div class="overlay no-print" id="ov-lembrete">
+      <div class="modal" style="width:680px">
+        <div class="modal-title">Lembrete pelo WhatsApp</div>
+        <div class="modal-sub" id="lembrete-sub"></div>
+        <div class="field">
+          <label>Mensagem <span style="font-weight:400;color:#9CA3AF">— use {empresa} e {competencia} que o sistema troca por cliente</span></label>
+          <textarea id="lembrete-msg" rows="6" oninput="salvarMensagemLembrete()"></textarea>
+        </div>
+        <div id="lembrete-img-area" style="display:none;align-items:center;gap:12px;margin-bottom:12px;padding:10px;background:#F9FAFB;border:1px solid var(--border);border-radius:8px">
+          <img id="lembrete-img" style="height:64px;border-radius:6px;border:1px solid var(--border)">
+          <div style="font-size:12px;color:#4B5563"><b>Imagem anexada:</b> "Envio de documentos". Ao clicar em Abrir WhatsApp ela é copiada automaticamente — na conversa é só dar <b>Ctrl+V</b> e enviar.</div>
+        </div>
+        <div id="lembrete-resumo" style="font-size:13px;color:#4B5563;margin-bottom:8px"></div>
+        <div style="max-height:300px;overflow-y:auto"><table class="table"><thead><tr><th>Cliente</th><th>Telefone</th><th></th></tr></thead><tbody id="lembrete-linhas"></tbody></table></div>
+        <div style="font-size:12px;color:#9CA3AF;margin-top:8px">Ao clicar em "Abrir WhatsApp" a conversa abre com a mensagem pronta e a tarefa deste cliente já é marcada como Feita. Você só confere e clica em enviar no WhatsApp.</div>
+        <div class="modal-footer"><button class="btn btn-navy" onclick="fecharLembreteObrig()">Fechar</button></div>
+      </div>
     </div>
     <div class="overlay no-print" id="ov-notas-cliente">
       <div class="modal" style="width:420px">
@@ -1465,6 +1484,97 @@ async function toggleDemanda(clienteId, obId, feito, obNome) {
     await api('demandas', 'POST', { cliente_id: clienteId, obrigacao_id: obId, mes: mesSel, ano: anoSel, feito, data_conclusao: feito ? new Date().toISOString().split('T')[0] : null });
   }
   toast(feito ? 'Marcado como feito!' : 'Desmarcado!', 'success');
+  verDemanda(obId, obNome);
+}
+
+function competenciaAnterior() {
+  const m = mesSel === 0 ? 11 : mesSel - 1;
+  const a = mesSel === 0 ? anoSel - 1 : anoSel;
+  return `${meses[m]}/${a}`;
+}
+
+function mensagemLembretePadrao() {
+  return 'Olá! Tudo bem? Segue o lembrete de envio dos documentos de {competencia} da {empresa}.';
+}
+
+async function copiarImagemLembrete() {
+  const blob = window._lembrete?.imgBlob;
+  if (!blob) return false;
+  try {
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+    return true;
+  } catch (e) { return false; }
+}
+
+function salvarMensagemLembrete() {
+  try { localStorage.setItem('lembrete_msg_' + window._lembrete.obId, document.getElementById('lembrete-msg').value); } catch (e) {}
+}
+
+function renderLinhasLembrete() {
+  const { clientes } = window._lembrete;
+  const feitos = clientes.filter(c => c.feito).length;
+  document.getElementById('lembrete-resumo').textContent = `${clientes.length - feitos} pendente(s) · ${feitos} já feito(s) neste mês`;
+  document.getElementById('lembrete-linhas').innerHTML = clientes.map(cl => {
+    const tel = (cl.telefone||'').replace(/\D/g,'');
+    return `<tr${cl.feito?' style="opacity:.6"':''}>
+      <td>${cl.razao_social}</td>
+      <td>${tel ? cl.telefone : '<span style="color:var(--danger)">sem telefone</span>'}</td>
+      <td>${cl.feito
+        ? '<span style="color:var(--success);font-size:13px"><i class="ti ti-check"></i> Feito</span>'
+        : tel ? `<button class="btn btn-sm btn-navy" onclick="abrirWhatsLembrete('${cl.id}')"><i class="ti ti-brand-whatsapp"></i> Abrir WhatsApp</button>`
+              : '<span style="color:#9CA3AF;font-size:12px">cadastre o telefone</span>'}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function abrirLembreteObrig(obId, obNome) {
+  const vinculos = await api(`cliente_obrigacoes?obrigacao_id=eq.${obId}&select=cliente_id,clientes(id,razao_social,telefone)`);
+  const demandas = await api(`demandas?obrigacao_id=eq.${obId}&mes=eq.${mesSel}&ano=eq.${anoSel}&feito=eq.true&select=cliente_id`);
+  const feitoSet = new Set(demandas.map(d => d.cliente_id));
+  const clientes = vinculos.filter(v => v.clientes).map(v => ({ id: v.clientes.id, razao_social: v.clientes.razao_social, telefone: v.clientes.telefone, feito: feitoSet.has(v.clientes.id) }))
+    .sort((a,b) => (a.razao_social||'').localeCompare(b.razao_social||''));
+  window._lembrete = { obId, obNome, clientes, imgBlob: null };
+  const imgArea = document.getElementById('lembrete-img-area');
+  imgArea.style.display = 'none';
+  try {
+    const r = await fetch('lembrete-documentos.png');
+    if (r.ok) {
+      const blob = await r.blob();
+      window._lembrete.imgBlob = blob.type === 'image/png' ? blob : new Blob([blob], { type: 'image/png' });
+      document.getElementById('lembrete-img').src = URL.createObjectURL(blob);
+      imgArea.style.display = 'flex';
+    }
+  } catch (e) {}
+  let msg = mensagemLembretePadrao();
+  try { msg = localStorage.getItem('lembrete_msg_' + obId) || msg; } catch (e) {}
+  document.getElementById('lembrete-msg').value = msg;
+  document.getElementById('lembrete-sub').textContent = `${obNome} — ${meses[mesSel]} ${anoSel}`;
+  renderLinhasLembrete();
+  document.getElementById('ov-lembrete').classList.add('show');
+}
+
+async function abrirWhatsLembrete(clienteId) {
+  const { obId, clientes } = window._lembrete;
+  const cl = clientes.find(c => c.id === clienteId);
+  const tel = (cl?.telefone||'').replace(/\D/g,'');
+  if (!cl || !tel) return;
+  const numero = tel.startsWith('55') ? tel : '55' + tel;
+  const mensagem = document.getElementById('lembrete-msg').value
+    .replace(/\{empresa\}/g, cl.razao_social).replace(/\{competencia\}/g, competenciaAnterior());
+  const copiou = await copiarImagemLembrete();
+  window.open(`whatsapp://send?phone=${numero}&text=${encodeURIComponent(mensagem)}`, '_blank');
+  if (window._lembrete.imgBlob) toast(copiou ? 'Imagem copiada — dê Ctrl+V na conversa do WhatsApp' : 'Não consegui copiar a imagem automaticamente', copiou ? 'success' : 'error');
+  const existing = await api(`demandas?cliente_id=eq.${clienteId}&obrigacao_id=eq.${obId}&mes=eq.${mesSel}&ano=eq.${anoSel}`);
+  const hoje = new Date().toISOString().split('T')[0];
+  if (existing.length > 0) await api(`demandas?id=eq.${existing[0].id}`, 'PATCH', { feito: true, data_conclusao: hoje });
+  else await api('demandas', 'POST', { cliente_id: clienteId, obrigacao_id: obId, mes: mesSel, ano: anoSel, feito: true, data_conclusao: hoje });
+  cl.feito = true;
+  renderLinhasLembrete();
+}
+
+function fecharLembreteObrig() {
+  const { obId, obNome } = window._lembrete;
+  fecharModal('ov-lembrete');
   verDemanda(obId, obNome);
 }
 

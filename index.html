@@ -1326,16 +1326,22 @@ async function verDemanda(obId, obNome) {
         </div>
       </div>
       <div style="padding:12px 20px;font-weight:600;color:var(--navy);border-top:1px solid var(--border)">✅ Empresas COM esta obrigação (${total})</div>
+      ${total > 0 ? `<div class="no-print" style="display:flex;align-items:center;gap:8px;padding:0 20px 12px;flex-wrap:wrap">
+        <span id="barra-demanda-texto" style="font-size:13px;color:#6B7280;margin-right:4px">Marque as empresas na tabela para dar baixa de uma vez</span>
+        <button class="btn btn-sm btn-success" onclick="marcarSelecionadasDemanda(true,'${obId}','${obNome.replace(/'/g,"\\'")}')"><i class="ti ti-check"></i> Marcar selecionadas como Feito</button>
+        <button class="btn btn-sm" onclick="marcarSelecionadasDemanda(false,'${obId}','${obNome.replace(/'/g,"\\'")}')"><i class="ti ti-clock"></i> Voltar para Pendente</button>
+      </div>` : ''}
       <table class="table">
-        <thead><tr><th>Cliente</th><th>Status</th>${precisaNf?'<th>Notas Fiscais</th>':''}<th class="no-print">Ação</th></tr></thead>
+        <thead><tr><th class="no-print" style="width:36px"><input type="checkbox" id="sel-todas-demanda" title="Selecionar todas" onchange="selecionarTodasDemanda(this.checked)"></th><th>Cliente</th><th>Status</th>${precisaNf?'<th>Notas Fiscais</th>':''}<th class="no-print">Ação</th></tr></thead>
         <tbody>
-          ${total === 0 ? `<tr><td colspan="${precisaNf?4:3}"><div class="empty-state"><i class="ti ti-users"></i>Nenhum cliente tem esta obrigação.</div></td></tr>` :
+          ${total === 0 ? `<tr><td colspan="${precisaNf?5:4}"><div class="empty-state"><i class="ti ti-users"></i>Nenhum cliente tem esta obrigação.</div></td></tr>` :
           clienteObs.map(co => {
             const feito = feitosIds.includes(co.cliente_id);
             const notasCliente = notasPorCliente[co.cliente_id] || [];
             const totalCliente = notasCliente.reduce((s,n)=>s+(Number(n.valor_nf)||0),0);
             const nomeEsc = (co.clientes?.razao_social||'').replace(/'/g,"\\'");
             return `<tr>
+              <td class="no-print"><input type="checkbox" class="sel-demanda" value="${co.cliente_id}" onchange="atualizarBarraDemanda()"></td>
               <td style="font-weight:500">${co.clientes?.razao_social||'—'}</td>
               <td><span class="badge ${feito?'badge-success':'badge-warning'}">${feito?'Concluído':'Pendente'}</span></td>
               ${precisaNf ? `<td>
@@ -1474,6 +1480,38 @@ async function removerNotaCliente(notaId) {
 function fecharNotasCliente() {
   const { obId, obNome } = window._notasClienteState;
   fecharModal('ov-notas-cliente');
+  verDemanda(obId, obNome);
+}
+
+function atualizarBarraDemanda() {
+  const todas = [...document.querySelectorAll('.sel-demanda')];
+  const marcadas = todas.filter(c => c.checked).length;
+  const master = document.getElementById('sel-todas-demanda');
+  if (master) { master.checked = todas.length > 0 && marcadas === todas.length; master.indeterminate = marcadas > 0 && marcadas < todas.length; }
+  const texto = document.getElementById('barra-demanda-texto');
+  if (texto) texto.textContent = marcadas > 0 ? `${marcadas} selecionada(s)` : 'Marque as empresas na tabela para dar baixa de uma vez';
+}
+
+function selecionarTodasDemanda(marcar) {
+  document.querySelectorAll('.sel-demanda').forEach(c => { c.checked = marcar; });
+  atualizarBarraDemanda();
+}
+
+async function marcarSelecionadasDemanda(feito, obId, obNome) {
+  const ids = [...document.querySelectorAll('.sel-demanda:checked')].map(c => c.value);
+  if (ids.length === 0) { toast('Marque pelo menos uma empresa na tabela.', 'error'); return; }
+  const texto = document.getElementById('barra-demanda-texto');
+  if (texto) texto.textContent = `Salvando ${ids.length} empresa(s)...`;
+  const existentes = await api(`demandas?obrigacao_id=eq.${obId}&mes=eq.${mesSel}&ano=eq.${anoSel}&select=id,cliente_id`);
+  const idPorCliente = {};
+  existentes.forEach(d => { idPorCliente[d.cliente_id] = d.id; });
+  const dataConclusao = feito ? new Date().toISOString().split('T')[0] : null;
+  for (let i = 0; i < ids.length; i += 10) {
+    await Promise.all(ids.slice(i, i + 10).map(clienteId => idPorCliente[clienteId]
+      ? api(`demandas?id=eq.${idPorCliente[clienteId]}`, 'PATCH', { feito, data_conclusao: dataConclusao })
+      : api('demandas', 'POST', { cliente_id: clienteId, obrigacao_id: obId, mes: mesSel, ano: anoSel, feito, data_conclusao: dataConclusao })));
+  }
+  toast(feito ? `${ids.length} empresa(s) marcada(s) como feito!` : `${ids.length} empresa(s) voltaram para pendente.`, 'success');
   verDemanda(obId, obNome);
 }
 

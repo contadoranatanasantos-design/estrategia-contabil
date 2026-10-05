@@ -1508,6 +1508,13 @@ function mostrarImagemLembrete(dataUrl) {
   document.getElementById('lembrete-img-botao').textContent = dataUrl ? 'Trocar imagem' : 'Escolher imagem';
 }
 
+async function salvarImagemLembreteNuvem(obId, blob) {
+  try {
+    const r = await storageFetch(`/object/documentos/lembretes/${obId}.png`, { method: 'POST', headers: { 'Content-Type': 'image/png', 'x-upsert': 'true' }, body: blob });
+    return r.ok;
+  } catch (e) { return false; }
+}
+
 function escolherImagemLembrete(input) {
   const file = input.files[0];
   if (!file) return;
@@ -1518,11 +1525,11 @@ function escolherImagemLembrete(input) {
       const canvas = document.createElement('canvas');
       canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
       canvas.getContext('2d').drawImage(img, 0, 0);
-      canvas.toBlob(blob => {
+      canvas.toBlob(async blob => {
         window._lembrete.imgBlob = blob;
-        const dataUrl = canvas.toDataURL('image/png');
-        try { localStorage.setItem('lembrete_img', dataUrl); } catch (e) { toast('Imagem muito grande para guardar — vai valer só até fechar o sistema.', 'error'); }
-        mostrarImagemLembrete(dataUrl);
+        mostrarImagemLembrete(URL.createObjectURL(blob));
+        const ok = await salvarImagemLembreteNuvem(window._lembrete.obId, blob);
+        toast(ok ? 'Imagem guardada nesta tarefa!' : 'Não consegui guardar a imagem — vale só até fechar a janela.', ok ? 'success' : 'error');
       }, 'image/png');
     };
     img.src = leitor.result;
@@ -1570,10 +1577,18 @@ async function abrirLembreteObrig(obId, obNome) {
   const clientes = vinculos.filter(v => v.clientes).map(v => ({ id: v.clientes.id, razao_social: v.clientes.razao_social, telefone: v.clientes.telefone, feito: feitoSet.has(v.clientes.id) }))
     .sort((a,b) => (a.razao_social||'').localeCompare(b.razao_social||''));
   window._lembrete = { obId, obNome, clientes, imgBlob: null };
-  let dataUrl = null;
-  try { dataUrl = localStorage.getItem('lembrete_img'); } catch (e) {}
-  if (dataUrl) window._lembrete.imgBlob = await (await fetch(dataUrl)).blob();
-  mostrarImagemLembrete(dataUrl);
+  let imgUrl = null;
+  try {
+    const r = await storageFetch(`/object/authenticated/documentos/lembretes/${obId}.png?t=${Date.now()}`, { cache: 'no-store' });
+    if (r.ok) window._lembrete.imgBlob = await r.blob();
+    else {
+      // migra a imagem que tinha sido guardada só neste navegador (versão anterior)
+      const antiga = localStorage.getItem('lembrete_img');
+      if (antiga) { window._lembrete.imgBlob = await (await fetch(antiga)).blob(); salvarImagemLembreteNuvem(obId, window._lembrete.imgBlob); }
+    }
+  } catch (e) {}
+  if (window._lembrete.imgBlob) imgUrl = URL.createObjectURL(window._lembrete.imgBlob);
+  mostrarImagemLembrete(imgUrl);
   let msg = mensagemLembretePadrao();
   try { msg = localStorage.getItem('lembrete_msg_' + obId) || msg; } catch (e) {}
   document.getElementById('lembrete-msg').value = msg;

@@ -914,7 +914,11 @@ async function salvarCliente() {
     status: document.getElementById('c-status').value || 'Ativo'
   };
   let clienteId = id;
+  const obsTarefaPorObrig = {};
   if (id) {
+    // Guarda as observações por tarefa antes de apagar/recriar os vínculos (senão se perdem a cada salvamento do cadastro).
+    const vinculosComObs = await api(`cliente_obrigacoes?cliente_id=eq.${id}&observacao=not.is.null&select=obrigacao_id,observacao`);
+    if (Array.isArray(vinculosComObs)) vinculosComObs.forEach(v => { if (v.observacao) obsTarefaPorObrig[v.obrigacao_id] = v.observacao; });
     const clienteAntigo = (await api(`clientes?id=eq.${id}&select=honorario,data_inicio,status`))[0];
     await api(`clientes?id=eq.${id}`, 'PATCH', dados);
     await api(`cliente_obrigacoes?cliente_id=eq.${id}`, 'DELETE');
@@ -936,7 +940,9 @@ async function salvarCliente() {
   // Salvar obrigações
   const checks = document.querySelectorAll('#obrig-lista input[type=checkbox]:checked');
   for (const ch of checks) {
-    await api('cliente_obrigacoes', 'POST', { cliente_id: clienteId, obrigacao_id: ch.value });
+    const novo = { cliente_id: clienteId, obrigacao_id: ch.value };
+    if (obsTarefaPorObrig[ch.value]) novo.observacao = obsTarefaPorObrig[ch.value];
+    await api('cliente_obrigacoes', 'POST', novo);
   }
   fecharModal('ov-cliente');
   toast(id ? 'Cliente atualizado!' : 'Cliente cadastrado!', 'success');
@@ -1295,6 +1301,11 @@ async function verDemanda(obId, obNome) {
   const precisaNf = !!obDados?.precisa_nf;
   const clienteObs = await api(`cliente_obrigacoes?obrigacao_id=eq.${obId}&select=cliente_id,clientes(id,razao_social)`);
   clienteObs.sort((a,b) => (a.clientes?.razao_social||'').localeCompare(b.clientes?.razao_social||'', 'pt-BR'));
+  // Observação por empresa nesta tarefa (busca separada: se a coluna ainda não existir no banco, a tela continua funcionando sem ela)
+  const obsPorCliente = {};
+  const obsLista = await api(`cliente_obrigacoes?obrigacao_id=eq.${obId}&select=cliente_id,observacao`);
+  if (Array.isArray(obsLista)) obsLista.forEach(o => { obsPorCliente[o.cliente_id] = o.observacao || ''; });
+  const escAttr = s => String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   const demandas = await api(`demandas?obrigacao_id=eq.${obId}&mes=eq.${mesSel}&ano=eq.${anoSel}`);
   const notas = precisaNf ? await api(`demanda_notas?obrigacao_id=eq.${obId}&mes=eq.${mesSel}&ano=eq.${anoSel}&order=created_at`) : [];
   const notasPorCliente = {};
@@ -1339,9 +1350,9 @@ async function verDemanda(obId, obNome) {
         <button class="btn btn-sm" onclick="marcarSelecionadasDemanda(false,'${obId}','${obNome.replace(/'/g,"\\'")}')"><i class="ti ti-clock"></i> Voltar para Pendente</button>
       </div>` : ''}
       <table class="table">
-        <thead><tr><th class="no-print" style="width:36px"><input type="checkbox" id="sel-todas-demanda" title="Selecionar todas" onchange="selecionarTodasDemanda(this.checked)"></th><th>Cliente</th><th>Status</th>${precisaNf?'<th>Notas Fiscais</th>':''}<th class="no-print">Ação</th></tr></thead>
+        <thead><tr><th class="no-print" style="width:36px"><input type="checkbox" id="sel-todas-demanda" title="Selecionar todas" onchange="selecionarTodasDemanda(this.checked)"></th><th>Cliente</th><th>Observação</th><th>Status</th>${precisaNf?'<th>Notas Fiscais</th>':''}<th class="no-print">Ação</th></tr></thead>
         <tbody>
-          ${total === 0 ? `<tr><td colspan="${precisaNf?5:4}"><div class="empty-state"><i class="ti ti-users"></i>Nenhum cliente tem esta obrigação.</div></td></tr>` :
+          ${total === 0 ? `<tr><td colspan="${precisaNf?6:5}"><div class="empty-state"><i class="ti ti-users"></i>Nenhum cliente tem esta obrigação.</div></td></tr>` :
           clienteObs.map(co => {
             const feito = feitosIds.includes(co.cliente_id);
             const notasCliente = notasPorCliente[co.cliente_id] || [];
@@ -1350,6 +1361,10 @@ async function verDemanda(obId, obNome) {
             return `<tr>
               <td class="no-print"><input type="checkbox" class="sel-demanda" value="${co.cliente_id}" onchange="atualizarBarraDemanda()"></td>
               <td style="font-weight:500">${co.clientes?.razao_social||'—'}</td>
+              <td>
+                <input type="text" class="no-print obs-demanda-input" data-original="${escAttr(obsPorCliente[co.cliente_id])}" value="${escAttr(obsPorCliente[co.cliente_id])}" placeholder="Observação..." onblur="salvarObservacaoDemanda(this,'${co.cliente_id}','${obId}')" onkeydown="if(event.key==='Enter')this.blur()" style="width:100%;min-width:180px;height:32px;padding:0 8px;border-radius:6px;border:1.5px solid #E5E7EB;font-size:12px">
+                <div class="so-impressao">${escAttr(obsPorCliente[co.cliente_id])||'—'}</div>
+              </td>
               <td><span class="badge ${feito?'badge-success':'badge-warning'}">${feito?'Concluído':'Pendente'}</span></td>
               ${precisaNf ? `<td>
                 ${notasCliente.length <= 1 ? `
@@ -1488,6 +1503,15 @@ function fecharNotasCliente() {
   const { obId, obNome } = window._notasClienteState;
   fecharModal('ov-notas-cliente');
   verDemanda(obId, obNome);
+}
+
+async function salvarObservacaoDemanda(input, clienteId, obId) {
+  const valor = input.value.trim();
+  if (valor === (input.dataset.original || '').trim()) return;
+  const res = await api(`cliente_obrigacoes?cliente_id=eq.${clienteId}&obrigacao_id=eq.${obId}`, 'PATCH', { observacao: valor || null });
+  if (!Array.isArray(res) || res.length === 0) { toast('Não consegui salvar a observação.', 'error'); return; }
+  input.dataset.original = valor;
+  toast(valor ? 'Observação salva!' : 'Observação removida!', 'success');
 }
 
 function linhasDemandaVisiveis() {

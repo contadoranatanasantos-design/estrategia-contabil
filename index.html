@@ -1311,6 +1311,8 @@ async function verDemanda(obId, obNome) {
   if (!Array.isArray(etapas)) etapas = [];
   const etapasFeitasLista = etapas.length ? await api(`demanda_etapas?obrigacao_id=eq.${obId}&mes=eq.${mesSel}&ano=eq.${anoSel}&select=cliente_id,etapa_id`) : [];
   const etapaFeitaSet = new Set((Array.isArray(etapasFeitasLista) ? etapasFeitasLista : []).map(e => e.cliente_id + '-' + e.etapa_id));
+  const etapasNaLista = etapas.length ? await api(`etapa_nao_aplica?obrigacao_id=eq.${obId}&select=cliente_id,etapa_id`) : [];
+  const etapaNaSet = new Set((Array.isArray(etapasNaLista) ? etapasNaLista : []).map(e => e.cliente_id + '-' + e.etapa_id));
   const demandas = await api(`demandas?obrigacao_id=eq.${obId}&mes=eq.${mesSel}&ano=eq.${anoSel}`);
   const notas = precisaNf ? await api(`demanda_notas?obrigacao_id=eq.${obId}&mes=eq.${mesSel}&ano=eq.${anoSel}&order=created_at`) : [];
   const notasPorCliente = {};
@@ -1378,7 +1380,7 @@ async function verDemanda(obId, obNome) {
                 <textarea rows="1" class="no-print obs-demanda-input" data-original="${escAttr(obsPorCliente[co.cliente_id])}" placeholder="Observação..." oninput="ajustarAlturaObs(this)" onblur="salvarObservacaoDemanda(this,'${co.cliente_id}','${obId}')" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();this.blur()}" style="width:100%;min-height:32px;padding:6px 8px;border-radius:6px;border:1.5px solid #E5E7EB;font-size:12.5px;line-height:1.4;resize:none;overflow:hidden;font-family:inherit">${escAttr(obsPorCliente[co.cliente_id])}</textarea>
                 <div class="so-impressao">${escAttr(obsPorCliente[co.cliente_id])||'—'}</div>
               </td>
-              ${etapas.map(e => { const ok = etapaFeitaSet.has(co.cliente_id + '-' + e.id); return `<td style="text-align:center"><input type="checkbox" class="no-print etapa-cb" ${ok?'checked':''} onchange="toggleEtapaDemanda(this,'${co.cliente_id}','${obId}','${e.id}')" style="width:18px;height:18px;cursor:pointer"><div class="so-impressao">${ok?'OK':'—'}</div></td>`; }).join('')}
+              ${etapas.map(e => { const na = etapaNaSet.has(co.cliente_id + '-' + e.id); const ok = !na && etapaFeitaSet.has(co.cliente_id + '-' + e.id); return `<td class="etapa-cel" data-na="${na?1:0}" style="text-align:center">${celulaEtapaHTML(co.cliente_id, obId, e.id, ok, na)}</td>`; }).join('')}
               <td><span class="badge ${feito?'badge-success':'badge-warning'}">${feito?'Concluído':'Pendente'}</span></td>
               ${precisaNf ? `<td>
                 ${notasCliente.length <= 1 ? `
@@ -1465,10 +1467,37 @@ async function toggleEtapaDemanda(checkbox, clienteId, obId, etapaId) {
   atualizarAvisoEtapas();
 }
 
+function celulaEtapaHTML(clienteId, obId, etapaId, ok, na) {
+  if (na) {
+    return `<button class="no-print" title="Não se aplica a esta empresa — clique para desfazer" onclick="toggleEtapaNaoAplica(this,'${clienteId}','${obId}','${etapaId}',false)" style="border:none;background:none;color:#DC2626;font-size:20px;font-weight:700;cursor:pointer;line-height:1">✕</button><div class="so-impressao">N/A</div>`;
+  }
+  return `<div class="no-print" style="display:flex;align-items:center;justify-content:center;gap:8px">
+    <input type="checkbox" class="etapa-cb" ${ok?'checked':''} onchange="toggleEtapaDemanda(this,'${clienteId}','${obId}','${etapaId}')" style="width:18px;height:18px;cursor:pointer">
+    <button title="Não se aplica a esta empresa" onclick="toggleEtapaNaoAplica(this,'${clienteId}','${obId}','${etapaId}',true)" style="border:none;background:none;color:#D1D5DB;font-size:13px;cursor:pointer;padding:0;line-height:1">✕</button>
+  </div><div class="so-impressao">${ok?'OK':'—'}</div>`;
+}
+
+async function toggleEtapaNaoAplica(btn, clienteId, obId, etapaId, marcarNa) {
+  if (marcarNa) {
+    const res = await api('etapa_nao_aplica', 'POST', { cliente_id: clienteId, obrigacao_id: obId, etapa_id: etapaId });
+    if (!Array.isArray(res)) { toast('Não consegui salvar (o SQL do "não se aplica" já foi rodado?).', 'error'); return; }
+    // se já estava marcada como feita neste mês, limpa a marcação para não ficar contraditório
+    await api(`demanda_etapas?cliente_id=eq.${clienteId}&etapa_id=eq.${etapaId}&mes=eq.${mesSel}&ano=eq.${anoSel}`, 'DELETE');
+  } else {
+    const res = await api(`etapa_nao_aplica?cliente_id=eq.${clienteId}&etapa_id=eq.${etapaId}`, 'DELETE');
+    if (!Array.isArray(res)) { toast('Não consegui desfazer.', 'error'); return; }
+  }
+  const td = btn.closest('td');
+  td.dataset.na = marcarNa ? '1' : '0';
+  td.innerHTML = celulaEtapaHTML(clienteId, obId, etapaId, false, marcarNa);
+  atualizarAvisoEtapas();
+}
+
 function atualizarAvisoEtapas() {
   document.querySelectorAll('tbody tr').forEach(tr => {
-    const cbs = tr.querySelectorAll('.etapa-cb');
-    if (!cbs.length) return;
+    const cels = tr.querySelectorAll('.etapa-cel');
+    if (!cels.length) return;
+    const completas = [...cels].every(td => td.dataset.na === '1' || td.querySelector('.etapa-cb')?.checked);
     const status = tr.querySelector('.badge');
     const pendente = status && status.textContent.trim() === 'Pendente';
     let aviso = tr.querySelector('.aviso-etapas');
@@ -1478,7 +1507,7 @@ function atualizarAvisoEtapas() {
       aviso.style.cssText = 'font-size:11px;color:var(--success);margin-top:4px;font-weight:500';
       status.parentElement.appendChild(aviso);
     }
-    aviso.textContent = (pendente && [...cbs].every(c => c.checked)) ? 'Etapas completas — pode marcar Feito' : '';
+    aviso.textContent = (pendente && completas) ? 'Etapas completas — pode marcar Feito' : '';
   });
 }
 

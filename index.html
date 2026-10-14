@@ -184,7 +184,25 @@ let anoSel = hoje.getFullYear();
 document.getElementById('topbar-mes').textContent = meses[hoje.getMonth()] + ' ' + hoje.getFullYear();
 
 // AUTH
+// O banco devolve no máximo 1000 linhas por consulta. Se uma busca bater nesse limite, traz as
+// páginas seguintes até acabar — senão contagens e listas ficam incompletas sem avisar.
 async function api(path, method='GET', body=null) {
+  const dados = await apiUnico(path, method, body);
+  if (method !== 'GET' || !Array.isArray(dados) || dados.length < 1000 || /[?&](limit|offset)=/.test(path)) return dados;
+  const base = /[?&]order=/.test(path)
+    ? path.replace(/([?&]order=[^&]*)/, '$1,id')
+    : path + (path.includes('?') ? '&' : '?') + 'order=id';
+  const todos = [];
+  for (let offset = 0; ; offset += 1000) {
+    const pagina = await apiUnico(`${base}&limit=1000&offset=${offset}`, 'GET', null);
+    if (!Array.isArray(pagina)) return dados;
+    todos.push(...pagina);
+    if (pagina.length < 1000) break;
+  }
+  return todos;
+}
+
+async function apiUnico(path, method='GET', body=null) {
   const opts = { method, headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + TOKEN, 'Content-Type': 'application/json', 'Prefer': 'return=representation' } };
   if (body) opts.body = JSON.stringify(body);
   let r = await fetch(SB_URL + '/rest/v1/' + path, opts);
@@ -2066,7 +2084,7 @@ function renderListaEmpresas(lista) {
           <div style="width:36px;height:36px;border-radius:8px;background:#EEF2FF;display:flex;align-items:center;justify-content:center"><i class="ti ti-building" style="color:var(--navy)"></i></div>
           <div style="font-weight:600;color:var(--navy)">${cl.razao_social}</div>
         </div>
-        <div style="font-size:13px;color:#9CA3AF">${contagemEmpresas[cl.id]||0} arquivo(s) · Clique para abrir →</div>
+        <div style="font-size:13px;color:#9CA3AF">${contagemEmpresas[cl.id]||0} arquivo(s) em ${meses[mesSel]}/${anoSel} · Clique para abrir →</div>
       </div>
     </div>`).join('');
 }
@@ -2119,6 +2137,14 @@ async function pagEmpresas() {
         <div id="lote-resultado" style="margin-top:16px"></div>
       </div>
     </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Limpar arquivos duplicados</div></div>
+      <div class="card-body">
+        <div style="font-size:13px;color:#4B5563;margin-bottom:12px">Procura arquivos repetidos (mesma empresa, mesma pasta, mesmo mês e mesmo nome). Você vê o resumo antes, e só depois confirma: o sistema mantém a <strong>primeira cópia</strong> e apaga as repetidas.</div>
+        <button class="btn" id="btn-procurar-duplicados" onclick="procurarDuplicadosDocumentos()"><i class="ti ti-copy-off"></i> Procurar duplicados</button>
+        <div id="area-duplicados" style="margin-top:12px"></div>
+      </div>
+    </div>
     <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
       <button class="btn btn-sm filtro-empresa-btn btn-navy" id="filtro-empresa-todos" onclick="definirFiltroEmpresas('todos')">Todas (${clientesEmpresas.length})</button>
       <button class="btn btn-sm filtro-empresa-btn" id="filtro-empresa-com" onclick="definirFiltroEmpresas('com')">Com anexos (${countCom})</button>
@@ -2131,6 +2157,48 @@ async function pagEmpresas() {
       </div>
     </div>
     <div id="lista-empresas">${renderListaEmpresas(clientesEmpresas)}</div>`;
+}
+
+async function procurarDuplicadosDocumentos() {
+  const area = document.getElementById('area-duplicados');
+  area.innerHTML = '<div style="color:#9CA3AF">Procurando...</div>';
+  const docs = await api('documentos?select=id,cliente_id,tipo,subpasta,mes,ano,nome_arquivo,storage_path,created_at&order=created_at');
+  const clientes = await api('clientes?select=id,razao_social');
+  const nomeCliente = {}; clientes.forEach(c => { nomeCliente[c.id] = c.razao_social; });
+  const grupos = {};
+  docs.forEach(d => {
+    const chave = [d.cliente_id, d.tipo, d.subpasta || '', d.subpasta ? '' : d.mes + '/' + d.ano, d.nome_arquivo].join('|');
+    (grupos[chave] = grupos[chave] || []).push(d);
+  });
+  const repetidos = Object.values(grupos).filter(g => g.length > 1);
+  const extras = repetidos.flatMap(g => g.slice(1));
+  window._duplicadosExtras = extras;
+  if (extras.length === 0) { area.innerHTML = '<div style="color:var(--success);font-size:13px"><i class="ti ti-check"></i> Nenhum arquivo duplicado encontrado.</div>'; return; }
+  const clientesAfetados = new Set(extras.map(d => d.cliente_id)).size;
+  const exemplos = repetidos.slice(0, 15).map(g => `<tr><td>${nomeCliente[g[0].cliente_id] || '—'}</td><td>${g[0].nome_arquivo}</td><td>${g[0].subpasta ? g[0].subpasta : meses[g[0].mes] + '/' + g[0].ano}</td><td style="text-align:center">${g.length}</td></tr>`).join('');
+  area.innerHTML = `
+    <div style="font-size:13px;margin-bottom:8px"><strong>${extras.length} cópia(s) repetida(s)</strong> em ${repetidos.length} arquivo(s), de ${clientesAfetados} empresa(s). Serão mantidas ${repetidos.length} primeira(s) cópia(s).</div>
+    <div style="max-height:260px;overflow-y:auto;margin-bottom:12px"><table class="table"><thead><tr><th>Empresa</th><th>Arquivo</th><th>Mês / pasta</th><th>Cópias</th></tr></thead><tbody>${exemplos}</tbody></table></div>
+    ${repetidos.length > 15 ? `<div style="font-size:12px;color:#9CA3AF;margin-bottom:12px">Mostrando 15 de ${repetidos.length} arquivos repetidos.</div>` : ''}
+    <button class="btn btn-danger" id="btn-remover-duplicados" onclick="removerDuplicadosDocumentos()"><i class="ti ti-trash"></i> Apagar ${extras.length} cópia(s) repetida(s)</button>`;
+}
+
+async function removerDuplicadosDocumentos() {
+  const extras = window._duplicadosExtras || [];
+  if (extras.length === 0) return;
+  if (!confirm(`Apagar ${extras.length} cópia(s) repetida(s)? A primeira cópia de cada arquivo é mantida. Isso não pode ser desfeito.`)) return;
+  const btn = document.getElementById('btn-remover-duplicados');
+  btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader"></i> Apagando...';
+  let apagados = 0, falhas = 0;
+  for (let i = 0; i < extras.length; i += 40) {
+    const lote = extras.slice(i, i + 40);
+    const r = await storageFetch('/object/documentos', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prefixes: lote.map(d => d.storage_path).filter(Boolean) }) });
+    if (!r.ok) { falhas += lote.length; continue; }
+    await api(`documentos?id=in.(${lote.map(d => d.id).join(',')})`, 'DELETE');
+    apagados += lote.length;
+  }
+  toast(falhas > 0 ? `${apagados} apagada(s), ${falhas} não deu(ram) para apagar.` : `${apagados} cópia(s) repetida(s) apagada(s)!`, falhas > 0 ? 'error' : 'success');
+  pagEmpresas();
 }
 
 async function baixarGuiasMes() {
@@ -2408,11 +2476,12 @@ async function anexarLote() {
   const btn = document.getElementById('btn-anexar-lote');
   const original = btn.innerHTML;
   btn.disabled = true;
-  let sucesso = 0, semCliente = 0;
+  let sucesso = 0, semCliente = 0, duplicados = 0;
   for (const item of window._loteArquivos) {
     if (!item.clienteId) { semCliente++; continue; }
     btn.innerHTML = `<i class="ti ti-loader"></i> Enviando ${sucesso+1}/${window._loteArquivos.length}...`;
     try {
+      if (await documentoJaExiste(item.clienteId, item.pasta, null, item.file.name)) { duplicados++; continue; }
       const path = `${item.clienteId}/${anoSel}-${String(mesSel+1).padStart(2,'0')}/${Date.now()}-${sanitizarNomeArquivo(item.file.name)}`;
       await storageFetch(`/object/documentos/${path}`, {
         method: 'POST',
@@ -2424,7 +2493,7 @@ async function anexarLote() {
     } catch (e) {}
   }
   btn.disabled = false;
-  toast(`${sucesso} arquivo(s) anexado(s)${semCliente?`, ${semCliente} sem cliente selecionado`:''}!`, semCliente ? 'error' : 'success');
+  toast(`${sucesso} arquivo(s) anexado(s)${duplicados?`, ${duplicados} já existia(m) e foi(ram) ignorado(s)`:''}${semCliente?`, ${semCliente} sem cliente selecionado`:''}!`, semCliente ? 'error' : 'success');
   pagEmpresas();
 }
 
@@ -2643,6 +2712,16 @@ async function verArquivosPastinha(clienteId, pathStr, subpasta) {
     </div>`;
 }
 
+// Mesmo cliente + mesma pasta + mesmo nome de arquivo = duplicado. Pastas por mês só comparam dentro do mês/ano
+// selecionado; as "pastinhas" (com subpasta) não têm mês, então comparam dentro da própria subpasta.
+async function documentoJaExiste(clienteId, tipo, subpasta, nomeArquivo) {
+  const filtroLocal = subpasta
+    ? `subpasta=eq.${encodeURIComponent(subpasta)}`
+    : `subpasta=is.null&mes=eq.${mesSel}&ano=eq.${anoSel}`;
+  const achados = await api(`documentos?cliente_id=eq.${clienteId}&tipo=eq.${encodeURIComponent(tipo)}&${filtroLocal}&nome_arquivo=eq.${encodeURIComponent(nomeArquivo)}&select=id&limit=1`);
+  return Array.isArray(achados) && achados.length > 0;
+}
+
 async function uploadDocumento(clienteId, pathStr, subpasta) {
   const path = pathStr.split(',');
   const tipo = path[path.length-1];
@@ -2652,12 +2731,13 @@ async function uploadDocumento(clienteId, pathStr, subpasta) {
   const btn = document.getElementById('btn-upload-doc');
   const textoOriginal = btn.innerHTML;
   btn.disabled = true;
-  let sucesso = 0;
+  let sucesso = 0, duplicados = 0;
   try {
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       btn.innerHTML = `<i class="ti ti-loader"></i> Enviando ${i+1}/${files.length}...`;
       try {
+        if (await documentoJaExiste(clienteId, tipo, subpasta, file.name)) { duplicados++; continue; }
         const pastaStorage = subpasta ? `${tipo}/${sanitizarNomeArquivo(subpasta)}` : `${tipo}/${anoSel}-${String(mesSel+1).padStart(2,'0')}`;
         const storagePath = `${clienteId}/${pastaStorage}/${Date.now()}-${i}-${sanitizarNomeArquivo(file.name)}`;
         const r = await storageFetch(`/object/documentos/${storagePath}`, {
@@ -2670,7 +2750,9 @@ async function uploadDocumento(clienteId, pathStr, subpasta) {
         sucesso++;
       } catch (e) { /* segue para o próximo arquivo */ }
     }
-    toast(`${sucesso} de ${files.length} arquivo(s) anexado(s)!`, sucesso === files.length ? 'success' : 'error');
+    toast(duplicados > 0
+      ? `${sucesso} anexado(s). ${duplicados} já existia(m) nesta pasta e foi(ram) ignorado(s) para não duplicar.`
+      : `${sucesso} de ${files.length} arquivo(s) anexado(s)!`, sucesso + duplicados === files.length ? 'success' : 'error');
     if (subpasta) await verArquivosPastinha(clienteId, pathStr, subpasta);
     else await verArquivos(clienteId, pathStr);
   } finally {

@@ -2146,6 +2146,7 @@ async function pagEmpresas() {
             <option value="mes">Só o mês selecionado (${meses[mesSel]}/${anoSel})</option>
             <option value="todos">Todos os meses</option>
           </select>
+          <input id="duplicados-empresa" placeholder="Filtrar por empresa (ex.: ACPO)" onkeydown="if(event.key==='Enter')procurarDuplicadosDocumentos()" style="height:36px;padding:0 10px;border-radius:8px;border:1px solid #E5E7EB;font-size:13px;width:240px">
           <button class="btn" id="btn-procurar-duplicados" onclick="procurarDuplicadosDocumentos()"><i class="ti ti-copy-off"></i> Procurar duplicados</button>
         </div>
         <div id="area-duplicados" style="margin-top:12px"></div>
@@ -2179,16 +2180,20 @@ async function procurarDuplicadosDocumentos() {
     const chave = [d.cliente_id, d.tipo, d.subpasta || '', d.subpasta ? '' : d.mes + '/' + d.ano, d.nome_arquivo].join('|');
     (grupos[chave] = grupos[chave] || []).push(d);
   });
-  const repetidos = Object.values(grupos).filter(g => g.length > 1);
+  // Filtro por empresa: ignora maiúsculas, pontos e espaços (assim "ACPO" acha "A C P O REPRESENTACAO")
+  const normaliza = s => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const termoEmpresa = normaliza(document.getElementById('duplicados-empresa').value);
+  const repetidos = Object.values(grupos)
+    .filter(g => g.length > 1 && (!termoEmpresa || normaliza(nomeCliente[g[0].cliente_id]).includes(termoEmpresa)))
+    .sort((a, b) => (nomeCliente[a[0].cliente_id] || '').localeCompare(nomeCliente[b[0].cliente_id] || '', 'pt-BR') || a[0].nome_arquivo.localeCompare(b[0].nome_arquivo));
   const extras = repetidos.flatMap(g => g.slice(1));
   window._duplicadosExtras = extras;
-  if (extras.length === 0) { area.innerHTML = `<div style="color:var(--success);font-size:13px"><i class="ti ti-check"></i> Nenhum arquivo duplicado encontrado${soMes ? ` em ${meses[mesSel]}/${anoSel}` : ''}.</div>`; return; }
+  if (extras.length === 0) { area.innerHTML = `<div style="color:var(--success);font-size:13px"><i class="ti ti-check"></i> Nenhum arquivo duplicado encontrado${soMes ? ` em ${meses[mesSel]}/${anoSel}` : ''}${termoEmpresa ? ' para essa empresa' : ''}.</div>`; return; }
   const clientesAfetados = new Set(extras.map(d => d.cliente_id)).size;
-  const exemplos = repetidos.slice(0, 15).map(g => `<tr><td>${nomeCliente[g[0].cliente_id] || '—'}</td><td>${g[0].nome_arquivo}</td><td>${g[0].subpasta ? g[0].subpasta : meses[g[0].mes] + '/' + g[0].ano}</td><td style="text-align:center">${g.length}</td></tr>`).join('');
+  const exemplos = repetidos.map(g => `<tr><td>${nomeCliente[g[0].cliente_id] || '—'}</td><td>${g[0].nome_arquivo}</td><td>${g[0].subpasta ? g[0].subpasta : meses[g[0].mes] + '/' + g[0].ano}</td><td style="text-align:center">${g.length}</td></tr>`).join('');
   area.innerHTML = `
     <div style="font-size:13px;margin-bottom:8px"><strong>${extras.length} cópia(s) repetida(s)</strong> ${soMes ? `em ${meses[mesSel]}/${anoSel}` : 'em todos os meses'}: ${repetidos.length} arquivo(s), de ${clientesAfetados} empresa(s). Serão mantidas ${repetidos.length} primeira(s) cópia(s).</div>
     <div style="max-height:260px;overflow-y:auto;margin-bottom:12px"><table class="table"><thead><tr><th>Empresa</th><th>Arquivo</th><th>Mês / pasta</th><th>Cópias</th></tr></thead><tbody>${exemplos}</tbody></table></div>
-    ${repetidos.length > 15 ? `<div style="font-size:12px;color:#9CA3AF;margin-bottom:12px">Mostrando 15 de ${repetidos.length} arquivos repetidos.</div>` : ''}
     <button class="btn btn-danger" id="btn-remover-duplicados" onclick="removerDuplicadosDocumentos()"><i class="ti ti-trash"></i> Apagar ${extras.length} cópia(s) repetida(s)</button>`;
 }
 

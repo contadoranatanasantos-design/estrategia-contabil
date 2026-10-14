@@ -2141,7 +2141,13 @@ async function pagEmpresas() {
       <div class="card-header"><div class="card-title">Limpar arquivos duplicados</div></div>
       <div class="card-body">
         <div style="font-size:13px;color:#4B5563;margin-bottom:12px">Procura arquivos repetidos (mesma empresa, mesma pasta, mesmo mês e mesmo nome). Você vê o resumo antes, e só depois confirma: o sistema mantém a <strong>primeira cópia</strong> e apaga as repetidas.</div>
-        <button class="btn" id="btn-procurar-duplicados" onclick="procurarDuplicadosDocumentos()"><i class="ti ti-copy-off"></i> Procurar duplicados</button>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <select id="duplicados-escopo" onchange="document.getElementById('area-duplicados').innerHTML=''" style="height:36px;padding:0 10px;border-radius:8px;border:1px solid #E5E7EB;font-size:13px">
+            <option value="mes">Só o mês selecionado (${meses[mesSel]}/${anoSel})</option>
+            <option value="todos">Todos os meses</option>
+          </select>
+          <button class="btn" id="btn-procurar-duplicados" onclick="procurarDuplicadosDocumentos()"><i class="ti ti-copy-off"></i> Procurar duplicados</button>
+        </div>
         <div id="area-duplicados" style="margin-top:12px"></div>
       </div>
     </div>
@@ -2162,7 +2168,10 @@ async function pagEmpresas() {
 async function procurarDuplicadosDocumentos() {
   const area = document.getElementById('area-duplicados');
   area.innerHTML = '<div style="color:#9CA3AF">Procurando...</div>';
-  const docs = await api('documentos?select=id,cliente_id,tipo,subpasta,mes,ano,nome_arquivo,storage_path,created_at&order=created_at');
+  const soMes = document.getElementById('duplicados-escopo').value === 'mes';
+  let docs = await api('documentos?select=id,cliente_id,tipo,subpasta,mes,ano,nome_arquivo,storage_path,created_at&order=created_at');
+  // "Só o mês selecionado": pastas por mês daquele mês/ano (as pastinhas sem mês só entram em "Todos os meses")
+  if (soMes) docs = docs.filter(d => !d.subpasta && d.mes === mesSel && d.ano === anoSel);
   const clientes = await api('clientes?select=id,razao_social');
   const nomeCliente = {}; clientes.forEach(c => { nomeCliente[c.id] = c.razao_social; });
   const grupos = {};
@@ -2173,11 +2182,11 @@ async function procurarDuplicadosDocumentos() {
   const repetidos = Object.values(grupos).filter(g => g.length > 1);
   const extras = repetidos.flatMap(g => g.slice(1));
   window._duplicadosExtras = extras;
-  if (extras.length === 0) { area.innerHTML = '<div style="color:var(--success);font-size:13px"><i class="ti ti-check"></i> Nenhum arquivo duplicado encontrado.</div>'; return; }
+  if (extras.length === 0) { area.innerHTML = `<div style="color:var(--success);font-size:13px"><i class="ti ti-check"></i> Nenhum arquivo duplicado encontrado${soMes ? ` em ${meses[mesSel]}/${anoSel}` : ''}.</div>`; return; }
   const clientesAfetados = new Set(extras.map(d => d.cliente_id)).size;
   const exemplos = repetidos.slice(0, 15).map(g => `<tr><td>${nomeCliente[g[0].cliente_id] || '—'}</td><td>${g[0].nome_arquivo}</td><td>${g[0].subpasta ? g[0].subpasta : meses[g[0].mes] + '/' + g[0].ano}</td><td style="text-align:center">${g.length}</td></tr>`).join('');
   area.innerHTML = `
-    <div style="font-size:13px;margin-bottom:8px"><strong>${extras.length} cópia(s) repetida(s)</strong> em ${repetidos.length} arquivo(s), de ${clientesAfetados} empresa(s). Serão mantidas ${repetidos.length} primeira(s) cópia(s).</div>
+    <div style="font-size:13px;margin-bottom:8px"><strong>${extras.length} cópia(s) repetida(s)</strong> ${soMes ? `em ${meses[mesSel]}/${anoSel}` : 'em todos os meses'}: ${repetidos.length} arquivo(s), de ${clientesAfetados} empresa(s). Serão mantidas ${repetidos.length} primeira(s) cópia(s).</div>
     <div style="max-height:260px;overflow-y:auto;margin-bottom:12px"><table class="table"><thead><tr><th>Empresa</th><th>Arquivo</th><th>Mês / pasta</th><th>Cópias</th></tr></thead><tbody>${exemplos}</tbody></table></div>
     ${repetidos.length > 15 ? `<div style="font-size:12px;color:#9CA3AF;margin-bottom:12px">Mostrando 15 de ${repetidos.length} arquivos repetidos.</div>` : ''}
     <button class="btn btn-danger" id="btn-remover-duplicados" onclick="removerDuplicadosDocumentos()"><i class="ti ti-trash"></i> Apagar ${extras.length} cópia(s) repetida(s)</button>`;

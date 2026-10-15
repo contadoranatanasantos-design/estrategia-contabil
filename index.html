@@ -1347,7 +1347,8 @@ async function verDemanda(obId, obNome) {
     <div class="page-header no-print">
       <button class="btn" onclick="pagDemandas()"><i class="ti ti-arrow-left"></i> Voltar</button>
     </div>
-    <div class="card">
+    <div class="card" style="overflow:visible">
+     <div id="demanda-sticky" style="position:sticky;top:0;z-index:5;background:#fff;border-radius:12px 12px 0 0">
       <div class="card-header">
         <div style="font-weight:600;color:var(--navy);font-size:15px">${obNome} — ${meses[mesSel]} ${anoSel}</div>
         <div style="display:flex;align-items:center;gap:14px">
@@ -1363,6 +1364,7 @@ async function verDemanda(obId, obNome) {
           <div style="width:${pct}%;height:100%;background:${pct===100?'var(--success)':pct>0?'var(--gold)':'var(--danger)'};border-radius:99px;transition:width 0.4s"></div>
         </div>
       </div>
+     </div>
       <div style="padding:12px 20px;font-weight:600;color:var(--navy);border-top:1px solid var(--border)">✅ Empresas COM esta obrigação (${total})</div>
       ${total > 0 ? `<div class="no-print" style="padding:0 20px 10px;max-width:380px">
         <div style="position:relative">
@@ -1474,6 +1476,23 @@ async function verDemanda(obId, obNome) {
     </div>`;
   document.querySelectorAll('.obs-demanda-input').forEach(ajustarAlturaObs);
   atualizarAvisoEtapas();
+  fixarCabecalhoDemanda();
+  if (!window._fixarCabecalhoOuvindo) { window.addEventListener('resize', fixarCabecalhoDemanda); window._fixarCabecalhoOuvindo = true; }
+}
+
+// Congela o título da tarefa (com botões e progresso) e os nomes das colunas ao rolar a lista de empresas.
+function fixarCabecalhoDemanda() {
+  const sticky = document.getElementById('demanda-sticky');
+  if (!sticky) return;
+  const topbar = document.querySelector('.topbar');
+  const topo = topbar ? topbar.offsetHeight : 0;
+  sticky.style.top = topo + 'px';
+  const base = topo + sticky.offsetHeight;
+  sticky.parentElement.querySelector('table.table').querySelectorAll('thead th').forEach(th => {
+    th.style.position = 'sticky';
+    th.style.top = base + 'px';
+    th.style.zIndex = '4';
+  });
 }
 
 async function toggleEtapaDemanda(checkbox, clienteId, obId, etapaId) {

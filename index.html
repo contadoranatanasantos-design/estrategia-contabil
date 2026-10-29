@@ -2151,8 +2151,8 @@ async function pagEmpresas() {
     <div class="card">
       <div class="card-header"><div class="card-title">Upload em lote</div></div>
       <div class="card-body">
-        <div style="font-size:13px;color:#4B5563;margin-bottom:12px">Selecione vários PDFs de uma vez (guias, situação fiscal, notas fiscais etc.). O sistema lê o CNPJ de dentro de cada arquivo e identifica o cliente e a pasta sozinho — o que não conseguir identificar, você escolhe manualmente.</div>
-        <input type="file" id="lote-arquivos" multiple accept="application/pdf" onchange="processarLote()">
+        <div style="font-size:13px;color:#4B5563;margin-bottom:12px">Selecione vários PDFs de uma vez (guias, situação fiscal, notas fiscais etc.). O sistema lê o CNPJ de dentro de cada arquivo e identifica o cliente e a pasta sozinho — o que não conseguir identificar, você escolhe manualmente.<br>Nas <strong>notas fiscais</strong> ele também lê o número e o valor (mesmo quando o PDF é só imagem — a primeira vez baixa o leitor de imagem, leva alguns segundos). Se tiver o <strong>XML</strong> da nota do portal nacional, pode selecionar junto: o XML traz os dados exatos.</div>
+        <input type="file" id="lote-arquivos" multiple accept="application/pdf,.xml,text/xml,application/xml" onchange="processarLote()">
         <div id="lote-resultado" style="margin-top:16px"></div>
       </div>
     </div>
@@ -2390,6 +2390,151 @@ function sanitizarNomeArquivo(nome) {
   return semAcentos.replace(/[^a-zA-Z0-9._-]/g, '_');
 }
 
+// Lê número, valor, data de emissão e competência de uma NFS-e em PDF que tenha texto (ex.: Prefeitura de Maceió).
+// Notas que são só imagem não têm texto — nesse caso devolve null e o valor é digitado à mão.
+async function lerDadosNotaPDF(file) {
+  try {
+    const buf = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+    const content = await (await pdf.getPage(1)).getTextContent();
+    const itens = content.items.filter(i => i.str.trim()).map(i => ({ s: i.str.trim(), x: i.transform[4], y: i.transform[5] }));
+    if (itens.length < 10) return null;
+    const texto = itens.map(i => i.s).join(' ');
+    const dinheiro = /^\d{1,3}(\.\d{3})*,\d{2}$/;
+    // O PDF guarda os textos fora da ordem de leitura; por isso procura-se o valor pela posição na página.
+    const aoLado = (rotulo, formato) => {
+      const r = itens.find(i => rotulo.test(i.s));
+      if (!r) return null;
+      const c = itens.filter(i => i !== r && Math.abs(i.y - r.y) < 4 && i.x > r.x && formato.test(i.s)).sort((a, b) => a.x - b.x)[0];
+      return c ? c.s : null;
+    };
+    const abaixo = (rotulo, formato) => {
+      const r = itens.find(i => rotulo.test(i.s));
+      if (!r) return null;
+      const c = itens.filter(i => formato.test(i.s) && Math.abs(i.x - r.x) < 60 && i.y < r.y && r.y - i.y < 40).sort((a, b) => b.y - a.y)[0];
+      return c ? c.s : null;
+    };
+    const valorTxt = (texto.match(/VALOR TOTAL DA NOTA\s*=?\s*R\$\s*([\d.]+,\d{2})/i) || [])[1] || aoLado(/^Valor do Servi[cç]o$/i, dinheiro) || aoLado(/^Valor L[ií]quido$/i, dinheiro);
+    const numero = (texto.match(/N[uú]mero da Nota\s+(\d{1,9})/i) || [])[1] || abaixo(/^NFS-?e$/i, /^\d{1,9}$/) || (file.name.match(/NF\s*(\d{1,9})/i) || [])[1] || null;
+    const em = texto.match(/Emiss[aã]o da NFS-?e\s+(\d{2})\/(\d{2})\/(\d{4})/i) || texto.match(/Data e Hora de Emiss[aã]o\s+(\d{2})\D+(\d{2})\D+(\d{4})/i) || texto.match(/\b(\d{2})\/(\d{2})\/(\d{4})\s+\d{2}:\d{2}/);
+    const comp = (aoLado(/^Compet[eê]ncia$/i, /^\d{2}\/\d{4}$/) || '').match(/(\d{2})\/(\d{4})/);
+    if (!valorTxt && !numero) return null;
+    return {
+      numero,
+      valor: valorTxt ? parseFloat(valorTxt.replace(/\./g, '').replace(',', '.')) : null,
+      emissao: em ? { dia: +em[1], mes: +em[2] - 1, ano: +em[3] } : null,
+      competencia: comp ? { mes: +comp[1] - 1, ano: +comp[2] } : null
+    };
+  } catch (e) { return null; }
+}
+
+// ---- Leitura de notas que são só imagem (OCR) e de XML de NFS-e ----
+// O leitor de imagem (Tesseract.js, código aberto) roda dentro do navegador e só é baixado quando aparece um PDF sem texto.
+// Tudo vem do jsDelivr, na versão fixa; a conferência de integridade (SRI) impede que o arquivo seja trocado.
+const TESSERACT_URL = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+const TESSERACT_SRI = 'sha384-GJqSu7vueQ9qN0E9yLPb3Wtpd7OrgK8KmYzC8T1IysG1bcvxvIO4qtYR/D3A991F';
+const TESSERACT_LANG = 'https://cdn.jsdelivr.net/npm/@tesseract.js-data/por/4.0.0_best_int';
+let _ocrWorker = null;
+
+function carregarScriptExterno(src, integridade) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src; s.integrity = integridade; s.crossOrigin = 'anonymous';
+    s.onload = resolve;
+    s.onerror = () => reject(new Error('não foi possível baixar o leitor de imagem (sem internet?)'));
+    document.head.appendChild(s);
+  });
+}
+
+async function obterOCR() {
+  if (_ocrWorker) return _ocrWorker;
+  if (typeof Tesseract === 'undefined') await carregarScriptExterno(TESSERACT_URL, TESSERACT_SRI);
+  _ocrWorker = await Tesseract.createWorker('por', 1, { langPath: TESSERACT_LANG });
+  return _ocrWorker;
+}
+
+async function encerrarOCR() {
+  if (!_ocrWorker) return;
+  try { await _ocrWorker.terminate(); } catch (e) {}
+  _ocrWorker = null;
+}
+
+// Desenha a 1ª página do PDF numa imagem e lê o texto dela.
+async function ocrPDF(file) {
+  const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+  const page = await pdf.getPage(1);
+  const viewport = page.getViewport({ scale: 2.5 });
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(viewport.width); canvas.height = Math.round(viewport.height);
+  await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+  const worker = await obterOCR();
+  const { data } = await worker.recognize(canvas);
+  return (data.text || '').replace(/\s+/g, ' ').trim();
+}
+
+// Interpreta o texto lido por OCR de uma NFS-e (modelo nacional "DANFSe" ou e-Nota/ABRASF de prefeitura).
+function interpretarTextoNota(texto, nomeArquivo) {
+  const t = texto.replace(/\s+/g, ' ');
+  const dinheiro = '([\\d.]+,\\d{2})';
+  const valorTxt = [
+    `VALOR TOTAL DA NOTA\\s*=?\\s*R\\$\\s*${dinheiro}`,
+    `VALOR L.QUIDO DA NFS.{0,3}E\\s*R\\$\\s*${dinheiro}`,
+    `VALOR DA OPERA.{1,3}O.{0,6}SERVI.O\\s*R\\$\\s*${dinheiro}`,
+    `lor do Servi.{1,2}o\\s*\\(R\\$\\)\\s*${dinheiro}`
+  ].map(p => (t.match(new RegExp(p, 'i')) || [])[1]).find(Boolean);
+  const chave = ((t.match(/(?:\d\s?){50}/) || [])[0] || '').replace(/\s/g, '');
+  const numero = (t.match(/N.{1,2}mero da Nota\s+(\d{1,9})/i) || [])[1]
+    || (t.match(/N.{1,2}MERO DA NFS.{0,3}E\s+COMPET.{1,3}NCIA DA NFS.{0,3}E\s+(\d{1,9})\s+\d{2}\/\d{2}\/\d{4}/i) || [])[1]
+    || (chave.length === 50 ? String(parseInt(chave.slice(23, 36), 10)) : null)
+    || (nomeArquivo.match(/NF\s*(\d{1,9})/i) || [])[1] || null;
+  const data = (m) => (m && +m[2] >= 1 && +m[2] <= 12 ? { dia: +m[1], mes: +m[2] - 1, ano: +m[3] } : null);
+  const emissao = data(t.match(/DATA E HORA DA EMISS.{1,2}O DA NFS.{0,3}E\s+(\d{2})\/(\d{2})\/(\d{4})/i))
+    || data(t.match(/Data e Hora de Emiss.{1,2}o\s+(\d{2})\D{1,3}(\d{2})\D{1,3}(\d{4})/i))
+    || data(t.match(/\b(\d{2})\/(\d{2})\/(\d{4})\b/));
+  const compDanfse = t.match(/COMPET.{1,3}NCIA DA NFS.{0,3}E\s+\d{1,9}\s+(\d{2})\/(\d{2})\/(\d{4})/i);
+  const compMesAno = t.match(/Compet.{1,3}ncia\s+(\d{2})\/(\d{4})/i);
+  let competencia = compDanfse ? { mes: +compDanfse[2] - 1, ano: +compDanfse[3] } : (compMesAno ? { mes: +compMesAno[1] - 1, ano: +compMesAno[2] } : null);
+  if (!competencia && chave.length === 50) competencia = { mes: +chave.slice(38, 40) - 1, ano: 2000 + +chave.slice(36, 38) };
+  if (competencia && (competencia.mes < 0 || competencia.mes > 11)) competencia = null;
+  if (!valorTxt && !numero) return null;
+  return { numero, valor: valorTxt ? parseFloat(valorTxt.replace(/\./g, '').replace(',', '.')) : null, emissao, competencia, origem: 'ocr' };
+}
+
+// Lê o XML de uma NFS-e (portal nacional ou prefeituras no padrão ABRASF) — dados exatos, sem leitura de imagem.
+function lerNotaXML(textoXml) {
+  try {
+    const doc = new DOMParser().parseFromString(textoXml, 'application/xml');
+    if (doc.getElementsByTagName('parsererror').length) return null;
+    const todos = Array.from(doc.getElementsByTagName('*'));
+    const folha = (...nomes) => todos.find(e => nomes.includes(e.localName) && e.children.length === 0 && e.textContent.trim());
+    const texto = (...nomes) => { const e = folha(...nomes); return e ? e.textContent.trim() : null; };
+    const numeroBruto = texto('nNFSe', 'Numero', 'NumeroNfse');
+    const valorBruto = texto('vServ', 'ValorServicos', 'vLiq', 'ValorLiquidoNfse');
+    if (!numeroBruto && !valorBruto) return null;
+    const dataIso = (s) => { const m = (s || '').match(/(\d{4})-(\d{2})-(\d{2})/); return m ? { dia: +m[3], mes: +m[2] - 1, ano: +m[1] } : null; };
+    const comp = texto('dCompet', 'Competencia');
+    const competencia = dataIso(comp) || (() => { const m = (comp || '').match(/^(\d{4})-(\d{2})$/); return m ? { mes: +m[2] - 1, ano: +m[1] } : null; })();
+    // CNPJ de quem emitiu vem primeiro; o do tomador (cliente da empresa) fica por último.
+    const noEmitente = todos.find(e => ['emit', 'PrestadorServico', 'Prestador', 'IdentificacaoPrestador'].includes(e.localName));
+    const cnpjsDe = (raiz) => Array.from(raiz.getElementsByTagName('*')).filter(e => ['CNPJ', 'Cnpj'].includes(e.localName)).map(e => e.textContent.replace(/\D/g, ''));
+    const cnpjs = [...new Set([...(noEmitente ? cnpjsDe(noEmitente) : []), ...cnpjsDe(doc.documentElement)])].filter(c => c.length === 14);
+    const numero = numeroBruto && /^\d+$/.test(numeroBruto) ? String(parseInt(numeroBruto, 10)) : numeroBruto;
+    return {
+      numero,
+      valor: valorBruto ? parseFloat(valorBruto.replace(',', '.')) : null,
+      emissao: dataIso(texto('dhEmi', 'dhProc', 'DataEmissao')),
+      competencia,
+      cnpjs,
+      origem: 'xml'
+    };
+  } catch (e) { return null; }
+}
+
+function extrairCNPJs(texto) {
+  const achados = (texto.match(/(?<!\d)\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}(?!\d)/g) || []).map(c => c.replace(/\D/g, ''));
+  return [...new Set(achados)];
+}
+
 function extrairCNPJ(texto) {
   const match = texto.match(/\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}/);
   return match ? match[0].replace(/\D/g, '') : null;
@@ -2441,33 +2586,99 @@ function encontrarClientePorNome(clientes, textoNorm, nomeArquivoNorm) {
   return melhor.cliente;
 }
 
+// Preenche item.nota (número, valor, competência e tarefa sugerida) conforme a origem: XML, imagem lida por OCR ou PDF com texto.
+async function montarNotaLote(item) {
+  const nota = item.xmlNota || (item.viaOCR ? interpretarTextoNota(item.texto, item.file.name) : await lerDadosNotaPDF(item.file));
+  item.nota = nota || { numero: (item.file.name.match(/NF\s*(\d{1,9})/i) || [])[1] || '', valor: null, emissao: null, competencia: null, naoLida: true };
+  // Competência (mês do faturamento): a que está na nota, senão o mês da emissão, senão o mês selecionado no topo.
+  const base = nota?.competencia || (nota?.emissao ? { mes: nota.emissao.mes, ano: nota.emissao.ano } : { mes: mesSel, ano: anoSel });
+  item.mesComp = base.mes; item.anoComp = base.ano;
+  // Tarefa: emitida do dia 1 ao 7 = "primeira semana"; depois = "última semana".
+  const primeira = !!nota?.emissao && nota.emissao.dia <= 7;
+  const tarefa = (window._tarefasNf || []).find(t => primeira ? /PRIMEIRA/i.test(t.nome) : /[UÚ]LTIMA/i.test(t.nome)) || (window._tarefasNf || [])[0];
+  item.obrigId = tarefa ? tarefa.id : '';
+}
+
 async function processarLote() {
   const input = document.getElementById('lote-arquivos');
   const files = Array.from(input.files);
   if (files.length === 0) return;
   const resultado = document.getElementById('lote-resultado');
-  resultado.innerHTML = '<div style="text-align:center;padding:20px;color:#9CA3AF"><i class="ti ti-loader"></i> Lendo arquivos e identificando clientes...</div>';
+  const andamento = (msg) => { resultado.innerHTML = `<div style="text-align:center;padding:20px;color:#9CA3AF"><i class="ti ti-loader"></i> ${msg}</div>`; };
+  andamento('Lendo arquivos e identificando clientes...');
   const clientes = await api('clientes?select=id,razao_social,nome_fantasia,cnpj&order=razao_social');
+  const tarefasNf = await api('obrigacoes?precisa_nf=eq.true&select=id,nome&order=prazo');
+  window._tarefasNf = Array.isArray(tarefasNf) ? tarefasNf : [];
+  window._loteClientes = clientes;
   window._loteArquivos = [];
-  for (const file of files) {
-    let clienteId = '', texto = '';
+  for (let k = 0; k < files.length; k++) {
+    const file = files[k];
+    andamento(`Lendo arquivo ${k + 1} de ${files.length}...`);
+    let clienteId = '', texto = '', viaOCR = false, ocrErro = '', xmlNota = null, cnpjs = [];
     try {
-      texto = await extrairTextoPDF(file);
-      const cnpjEncontrado = extrairCNPJ(texto);
-      if (cnpjEncontrado) {
-        const cliente = clientes.find(c => (c.cnpj||'').replace(/\D/g,'') === cnpjEncontrado);
-        if (cliente) clienteId = cliente.id;
+      if (/\.xml$/i.test(file.name) || /xml/i.test(file.type)) {
+        const xml = await file.text();
+        xmlNota = lerNotaXML(xml);
+        texto = xml.replace(/<[^>]+>/g, ' ');
+        cnpjs = xmlNota ? xmlNota.cnpjs : [];
+      } else {
+        texto = await extrairTextoPDF(file);
+        // PDF sem texto é só uma imagem: lê a imagem por OCR para achar a empresa e os dados da nota.
+        if (texto.replace(/\s/g, '').length < 30) {
+          andamento(`Lendo a imagem do arquivo ${k + 1} de ${files.length} (a primeira vez demora um pouco)...`);
+          try { texto = await ocrPDF(file); viaOCR = true; } catch (e) { texto = ''; ocrErro = e.message || 'falhou'; }
+        }
       }
-      if (!clienteId) {
-        const textoNorm = normalizarTexto(texto);
-        const nomeArquivoNorm = normalizarTexto(file.name);
-        const cliente = encontrarClientePorNome(clientes, textoNorm, nomeArquivoNorm);
+      cnpjs = [...cnpjs, ...extrairCNPJs(texto)];
+      for (const c of cnpjs) {
+        const cliente = clientes.find(cl => (cl.cnpj || '').replace(/\D/g, '') === c);
+        if (cliente) { clienteId = cliente.id; break; }
+      }
+      if (!clienteId && texto) {
+        const cliente = encontrarClientePorNome(clientes, normalizarTexto(texto), normalizarTexto(file.name));
         if (cliente) clienteId = cliente.id;
       }
     } catch (e) {}
-    window._loteArquivos.push({ file, clienteId, pasta: texto ? detectarPastaDocumento(texto) : 'guias' });
+    // Sem texto nenhum (ex.: OCR indisponível), o nome do arquivo ("NF 107.pdf") ajuda a achar a pasta.
+    const pasta = xmlNota ? 'nf' : (texto ? detectarPastaDocumento(texto) : (/^\s*(NF|NFS|NOTA)/i.test(file.name) ? 'nf' : 'guias'));
+    const item = { file, clienteId, pasta, nota: null, texto, viaOCR, ocrErro, xmlNota };
+    if (pasta === 'nf') await montarNotaLote(item);
+    window._loteArquivos.push(item);
   }
+  await encerrarOCR();
+  // O XML vai primeiro: seus dados são exatos e a nota do PDF correspondente não é lançada duas vezes.
+  window._loteArquivos.sort((a, b) => (b.xmlNota ? 1 : 0) - (a.xmlNota ? 1 : 0));
   renderLoteResultado(clientes);
+}
+
+async function trocarPastaLote(i, pasta) {
+  const item = window._loteArquivos[i];
+  item.pasta = pasta;
+  if (pasta === 'nf' && !item.nota) await montarNotaLote(item);
+  renderLoteResultado(window._loteClientes);
+}
+
+function opcoesCompetenciaNota(item) {
+  const mesAnterior = item.mesComp === 0 ? { mes: 11, ano: item.anoComp - 1 } : { mes: item.mesComp - 1, ano: item.anoComp };
+  const opcoes = [{ mes: item.mesComp, ano: item.anoComp, rot: 'mês da nota' }, { ...mesAnterior, rot: 'mês anterior' }];
+  return opcoes.map(o => `<option value="${o.mes}-${o.ano}" ${o.mes === item.mesComp && o.ano === item.anoComp ? 'selected' : ''}>${meses[o.mes].slice(0,3)}/${o.ano} (${o.rot})</option>`).join('');
+}
+
+function linhaNotaLote(item, i) {
+  const n = item.nota;
+  const valorTxt = n.valor != null ? formatarMoeda(n.valor) : '';
+  return `<tr><td colspan="3" style="background:#F9FAFB;padding:8px 16px">
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12px">
+      <span style="font-weight:600;color:var(--navy)">Nota:</span>
+      <input placeholder="Nº" value="${(n.numero||'').toString().replace(/"/g,'')}" oninput="window._loteArquivos[${i}].nota.numero=this.value" style="width:70px;height:30px;padding:0 6px;border-radius:6px;border:1.5px solid #E5E7EB;font-size:12px">
+      <input placeholder="Valor" inputmode="numeric" value="${valorTxt}" oninput="aplicarMascaraMoeda(this);window._loteArquivos[${i}].nota.valor=valorMascaraParaNumero(this.value)" style="width:110px;height:30px;padding:0 6px;border-radius:6px;border:1.5px solid ${n.valor == null ? '#F59E0B' : '#E5E7EB'};font-size:12px">
+      <select onchange="window._loteArquivos[${i}].obrigId=this.value" style="height:30px;border-radius:6px;border:1.5px solid #E5E7EB;font-size:12px;max-width:260px">
+        <option value="">Não lançar na tarefa</option>
+        ${(window._tarefasNf||[]).map(t => `<option value="${t.id}" ${t.id === item.obrigId ? 'selected' : ''}>${t.nome}</option>`).join('')}
+      </select>
+      <select onchange="const [m,a]=this.value.split('-');window._loteArquivos[${i}].mesComp=+m;window._loteArquivos[${i}].anoComp=+a" style="height:30px;border-radius:6px;border:1.5px solid #E5E7EB;font-size:12px">${opcoesCompetenciaNota(item)}</select>
+      ${n.naoLida ? `<span class="badge badge-warning">${item.ocrErro ? 'não consegui ler a imagem (' + item.ocrErro + '): digite o número e o valor' : 'PDF é imagem: digite o número e o valor'}</span>` : (n.valor == null ? '<span class="badge badge-warning">valor não encontrado</span>' : (n.origem === 'ocr' ? '<span class="badge badge-warning">lida da imagem: confira o número e o valor</span>' : (n.origem === 'xml' ? '<span class="badge badge-success">lida do XML</span>' : '<span class="badge badge-success">lida do PDF</span>')))}
+    </div></td></tr>`;
 }
 
 function cancelarLote() {
@@ -2491,12 +2702,12 @@ function renderLoteResultado(clientes) {
             <option value="">Selecione...</option>
             ${clientes.map(c=>`<option value="${c.id}" ${c.id===item.clienteId?'selected':''}>${c.razao_social}</option>`).join('')}
           </select></td>
-          <td><select onchange="window._loteArquivos[${i}].pasta=this.value">
+          <td><select onchange="trocarPastaLote(${i}, this.value)">
             <option value="guias" ${item.pasta==='guias'?'selected':''}>${PASTAS_EMPRESA.fiscal.filhos.guias.label}</option>
             <option value="situacao" ${item.pasta==='situacao'?'selected':''}>${PASTAS_EMPRESA.fiscal.filhos.situacao.label}</option>
             <option value="nf" ${item.pasta==='nf'?'selected':''}>${PASTAS_EMPRESA.fiscal.filhos.nf.label}</option>
           </select></td>
-        </tr>`).join('')}
+        </tr>${item.pasta === 'nf' && item.nota ? linhaNotaLote(item, i) : ''}`).join('')}
       </tbody>
     </table>
     <div style="display:flex;gap:8px;margin-top:12px">
@@ -2509,24 +2720,40 @@ async function anexarLote() {
   const btn = document.getElementById('btn-anexar-lote');
   const original = btn.innerHTML;
   btn.disabled = true;
-  let sucesso = 0, semCliente = 0, duplicados = 0;
+  let sucesso = 0, semCliente = 0, duplicados = 0, notasLancadas = 0, notasJaLancadas = 0;
   for (const item of window._loteArquivos) {
     if (!item.clienteId) { semCliente++; continue; }
     btn.innerHTML = `<i class="ti ti-loader"></i> Enviando ${sucesso+1}/${window._loteArquivos.length}...`;
+    // Nota fiscal vai para a pasta do mês de competência escolhido; os demais arquivos, para o mês selecionado no topo.
+    const ehNota = item.pasta === 'nf' && item.nota && item.mesComp != null;
+    const mesDoc = ehNota ? item.mesComp : mesSel, anoDoc = ehNota ? item.anoComp : anoSel;
     try {
-      if (await documentoJaExiste(item.clienteId, item.pasta, null, item.file.name)) { duplicados++; continue; }
-      const path = `${item.clienteId}/${anoSel}-${String(mesSel+1).padStart(2,'0')}/${Date.now()}-${sanitizarNomeArquivo(item.file.name)}`;
-      await storageFetch(`/object/documentos/${path}`, {
-        method: 'POST',
-        headers: { 'Content-Type': item.file.type || 'application/pdf' },
-        body: item.file
-      });
-      await api('documentos', 'POST', { cliente_id: item.clienteId, mes: mesSel, ano: anoSel, nome_arquivo: item.file.name, tipo: item.pasta, storage_path: path });
-      sucesso++;
+      if (await documentoJaExiste(item.clienteId, item.pasta, null, item.file.name, mesDoc, anoDoc)) duplicados++;
+      else {
+        const path = `${item.clienteId}/${anoDoc}-${String(mesDoc+1).padStart(2,'0')}/${Date.now()}-${sanitizarNomeArquivo(item.file.name)}`;
+        await storageFetch(`/object/documentos/${path}`, {
+          method: 'POST',
+          headers: { 'Content-Type': item.file.type || 'application/pdf' },
+          body: item.file
+        });
+        await api('documentos', 'POST', { cliente_id: item.clienteId, mes: mesDoc, ano: anoDoc, nome_arquivo: item.file.name, tipo: item.pasta, storage_path: path });
+        sucesso++;
+      }
+      // Lança número e valor na janela "Notas fiscais" da tarefa (sem repetir a mesma nota).
+      if (ehNota && item.obrigId && (item.nota.numero || item.nota.valor != null)) {
+        const numero = String(item.nota.numero || '').trim();
+        const jaTem = numero ? await api(`demanda_notas?cliente_id=eq.${item.clienteId}&obrigacao_id=eq.${item.obrigId}&mes=eq.${mesDoc}&ano=eq.${anoDoc}&numero_nf=eq.${encodeURIComponent(numero)}&select=id&limit=1`) : [];
+        if (Array.isArray(jaTem) && jaTem.length > 0) notasJaLancadas++;
+        else {
+          const r = await api('demanda_notas', 'POST', { cliente_id: item.clienteId, obrigacao_id: item.obrigId, mes: mesDoc, ano: anoDoc, numero_nf: numero || null, valor_nf: item.nota.valor });
+          if (Array.isArray(r)) notasLancadas++;
+        }
+      }
     } catch (e) {}
   }
   btn.disabled = false;
-  toast(`${sucesso} arquivo(s) anexado(s)${duplicados?`, ${duplicados} já existia(m) e foi(ram) ignorado(s)`:''}${semCliente?`, ${semCliente} sem cliente selecionado`:''}!`, semCliente ? 'error' : 'success');
+  const textoNotas = (notasLancadas || notasJaLancadas) ? ` ${notasLancadas} nota(s) lançada(s) na tarefa${notasJaLancadas ? ` (${notasJaLancadas} já estava(m) lançada(s))` : ''}.` : '';
+  toast(`${sucesso} arquivo(s) anexado(s)${duplicados?`, ${duplicados} já existia(m) e foi(ram) ignorado(s)`:''}${semCliente?`, ${semCliente} sem cliente selecionado`:''}!${textoNotas}`, semCliente ? 'error' : 'success');
   pagEmpresas();
 }
 
@@ -2747,10 +2974,10 @@ async function verArquivosPastinha(clienteId, pathStr, subpasta) {
 
 // Mesmo cliente + mesma pasta + mesmo nome de arquivo = duplicado. Pastas por mês só comparam dentro do mês/ano
 // selecionado; as "pastinhas" (com subpasta) não têm mês, então comparam dentro da própria subpasta.
-async function documentoJaExiste(clienteId, tipo, subpasta, nomeArquivo) {
+async function documentoJaExiste(clienteId, tipo, subpasta, nomeArquivo, mes = mesSel, ano = anoSel) {
   const filtroLocal = subpasta
     ? `subpasta=eq.${encodeURIComponent(subpasta)}`
-    : `subpasta=is.null&mes=eq.${mesSel}&ano=eq.${anoSel}`;
+    : `subpasta=is.null&mes=eq.${mes}&ano=eq.${ano}`;
   const achados = await api(`documentos?cliente_id=eq.${clienteId}&tipo=eq.${encodeURIComponent(tipo)}&${filtroLocal}&nome_arquivo=eq.${encodeURIComponent(nomeArquivo)}&select=id&limit=1`);
   return Array.isArray(achados) && achados.length > 0;
 }

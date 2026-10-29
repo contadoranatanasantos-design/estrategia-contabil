@@ -2472,23 +2472,34 @@ async function ocrPDF(file) {
   return (data.text || '').replace(/\s+/g, ' ').trim();
 }
 
+// Última alternativa quando a nota não traz um rótulo claro (ex.: Maceió): o valor da nota costuma se repetir
+// (serviço, líquido, base de cálculo) e os demais campos são 0,00 — pega o valor não zerado que mais aparece.
+function valorMaisRepetido(t) {
+  const cont = {};
+  (t.match(/(?<![\d.,])\d{1,3}(?:\.\d{3})*,\d{2}(?!\d)/g) || []).forEach(v => { if (parseFloat(v.replace(/\./g, '').replace(',', '.')) > 0) cont[v] = (cont[v] || 0) + 1; });
+  const ordem = Object.entries(cont).sort((a, b) => b[1] - a[1] || parseFloat(b[0].replace(/\./g, '').replace(',', '.')) - parseFloat(a[0].replace(/\./g, '').replace(',', '.')));
+  return ordem.length && ordem[0][1] >= 2 ? ordem[0][0] : null;
+}
+
 // Interpreta o texto lido por OCR de uma NFS-e (modelo nacional "DANFSe" ou e-Nota/ABRASF de prefeitura).
-function interpretarTextoNota(texto, nomeArquivo) {
+function interpretarTextoNota(texto, nomeArquivo, origem = 'ocr') {
   const t = texto.replace(/\s+/g, ' ');
   const dinheiro = '([\\d.]+,\\d{2})';
   const valorTxt = [
     `VALOR TOTAL DA NOTA\\s*=?\\s*R\\$\\s*${dinheiro}`,
-    `VALOR L.QUIDO DA NFS.{0,3}E\\s*R\\$\\s*${dinheiro}`,
     `VALOR DA OPERA.{1,3}O.{0,6}SERVI.O\\s*R\\$\\s*${dinheiro}`,
+    `VALOR L.QUIDO DA NFS.{0,3}E\\s*R\\$\\s*${dinheiro}`,
     `lor do Servi.{1,2}o\\s*\\(R\\$\\)\\s*${dinheiro}`
-  ].map(p => (t.match(new RegExp(p, 'i')) || [])[1]).find(Boolean);
+  ].map(p => (t.match(new RegExp(p, 'i')) || [])[1]).find(Boolean) || valorMaisRepetido(t);
   const chave = ((t.match(/(?:\d\s?){50}/) || [])[0] || '').replace(/\s/g, '');
   const numero = (t.match(/N.{1,2}mero da Nota\s+(\d{1,9})/i) || [])[1]
+    || (t.match(/NFS.?e\s+(\d{1,9})\s+C.digo de Verifica/i) || [])[1]
     || (t.match(/N.{1,2}MERO DA NFS.{0,3}E\s+COMPET.{1,3}NCIA DA NFS.{0,3}E\s+(\d{1,9})\s+\d{2}\/\d{2}\/\d{4}/i) || [])[1]
     || (chave.length === 50 ? String(parseInt(chave.slice(23, 36), 10)) : null)
     || (nomeArquivo.match(/NF\s*(\d{1,9})/i) || [])[1] || null;
   const data = (m) => (m && +m[2] >= 1 && +m[2] <= 12 ? { dia: +m[1], mes: +m[2] - 1, ano: +m[3] } : null);
-  const emissao = data(t.match(/DATA E HORA DA EMISS.{1,2}O DA NFS.{0,3}E\s+(\d{2})\/(\d{2})\/(\d{4})/i))
+  const emissao = data(t.match(/Emiss.{1,2}o da NFS.?e\s+(\d{2})\/(\d{2})\/(\d{4})/i))
+    || data(t.match(/DATA E HORA DA EMISS.{1,2}O DA NFS.{0,3}E\s+(\d{2})\/(\d{2})\/(\d{4})/i))
     || data(t.match(/Data e Hora de Emiss.{1,2}o\s+(\d{2})\D{1,3}(\d{2})\D{1,3}(\d{4})/i))
     || data(t.match(/\b(\d{2})\/(\d{2})\/(\d{4})\b/));
   const compDanfse = t.match(/COMPET.{1,3}NCIA DA NFS.{0,3}E\s+\d{1,9}\s+(\d{2})\/(\d{2})\/(\d{4})/i);
@@ -2497,7 +2508,7 @@ function interpretarTextoNota(texto, nomeArquivo) {
   if (!competencia && chave.length === 50) competencia = { mes: +chave.slice(38, 40) - 1, ano: 2000 + +chave.slice(36, 38) };
   if (competencia && (competencia.mes < 0 || competencia.mes > 11)) competencia = null;
   if (!valorTxt && !numero) return null;
-  return { numero, valor: valorTxt ? parseFloat(valorTxt.replace(/\./g, '').replace(',', '.')) : null, emissao, competencia, origem: 'ocr' };
+  return { numero, valor: valorTxt ? parseFloat(valorTxt.replace(/\./g, '').replace(',', '.')) : null, emissao, competencia, origem };
 }
 
 // Lê o XML de uma NFS-e (portal nacional ou prefeituras no padrão ABRASF) — dados exatos, sem leitura de imagem.
@@ -2588,7 +2599,12 @@ function encontrarClientePorNome(clientes, textoNorm, nomeArquivoNorm) {
 
 // Preenche item.nota (número, valor, competência e tarefa sugerida) conforme a origem: XML, imagem lida por OCR ou PDF com texto.
 async function montarNotaLote(item) {
-  const nota = item.xmlNota || (item.viaOCR ? interpretarTextoNota(item.texto, item.file.name) : await lerDadosNotaPDF(item.file));
+  let nota = item.xmlNota || (item.viaOCR ? interpretarTextoNota(item.texto, item.file.name) : await lerDadosNotaPDF(item.file));
+  // PDF com texto, mas de um modelo que a leitura por posição não conhece: tenta de novo pelo texto corrido.
+  if (!item.xmlNota && !item.viaOCR && (!nota || nota.valor == null) && item.texto) {
+    const alt = interpretarTextoNota(item.texto, item.file.name, 'texto');
+    if (alt && alt.valor != null) nota = { ...(nota || {}), ...alt, emissao: nota?.emissao || alt.emissao, competencia: nota?.competencia || alt.competencia };
+  }
   item.nota = nota || { numero: (item.file.name.match(/NF\s*(\d{1,9})/i) || [])[1] || '', valor: null, emissao: null, competencia: null, naoLida: true };
   // Competência (mês do faturamento): a que está na nota, senão o mês da emissão, senão o mês selecionado no topo.
   const base = nota?.competencia || (nota?.emissao ? { mes: nota.emissao.mes, ano: nota.emissao.ano } : { mes: mesSel, ano: anoSel });
@@ -2677,7 +2693,7 @@ function linhaNotaLote(item, i) {
         ${(window._tarefasNf||[]).map(t => `<option value="${t.id}" ${t.id === item.obrigId ? 'selected' : ''}>${t.nome}</option>`).join('')}
       </select>
       <select onchange="const [m,a]=this.value.split('-');window._loteArquivos[${i}].mesComp=+m;window._loteArquivos[${i}].anoComp=+a" style="height:30px;border-radius:6px;border:1.5px solid #E5E7EB;font-size:12px">${opcoesCompetenciaNota(item)}</select>
-      ${n.naoLida ? `<span class="badge badge-warning">${item.ocrErro ? 'não consegui ler a imagem (' + item.ocrErro + '): digite o número e o valor' : 'PDF é imagem: digite o número e o valor'}</span>` : (n.valor == null ? '<span class="badge badge-warning">valor não encontrado</span>' : (n.origem === 'ocr' ? '<span class="badge badge-warning">lida da imagem: confira o número e o valor</span>' : (n.origem === 'xml' ? '<span class="badge badge-success">lida do XML</span>' : '<span class="badge badge-success">lida do PDF</span>')))}
+      ${n.naoLida ? `<span class="badge badge-warning">${item.ocrErro ? 'não consegui ler a imagem (' + item.ocrErro + '): digite o número e o valor' : 'PDF é imagem: digite o número e o valor'}</span>` : (n.valor == null ? '<span class="badge badge-warning">valor não encontrado</span>' : ((n.origem === 'ocr' || n.origem === 'texto') ? `<span class="badge badge-warning">${n.origem === 'ocr' ? 'lida da imagem' : 'valor deduzido do texto'}: confira o número e o valor</span>` : (n.origem === 'xml' ? '<span class="badge badge-success">lida do XML</span>' : '<span class="badge badge-success">lida do PDF</span>')))}
     </div></td></tr>`;
 }
 

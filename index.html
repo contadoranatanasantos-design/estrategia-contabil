@@ -1319,6 +1319,11 @@ async function verDemanda(obId, obNome) {
   const precisaNf = !!obDados?.precisa_nf;
   const clienteObs = await api(`cliente_obrigacoes?obrigacao_id=eq.${obId}&select=cliente_id,clientes(id,razao_social,segmento)`);
   clienteObs.sort((a,b) => (a.clientes?.razao_social||'').localeCompare(b.clientes?.razao_social||'', 'pt-BR'));
+  // Se a mesma empresa foi ligada duas vezes à tarefa, mostra só uma linha (e avisa, com botão para limpar o banco).
+  const vistosCliente = new Set();
+  const qtdRepetidas = clienteObs.length - clienteObs.filter(co => !vistosCliente.has(co.cliente_id) && vistosCliente.add(co.cliente_id)).length;
+  vistosCliente.clear();
+  for (let i = clienteObs.length - 1; i >= 0; i--) { if (vistosCliente.has(clienteObs[i].cliente_id)) clienteObs.splice(i, 1); else vistosCliente.add(clienteObs[i].cliente_id); }
   // Observação por empresa nesta tarefa (busca separada: se a coluna ainda não existir no banco, a tela continua funcionando sem ela)
   const obsPorCliente = {};
   const obsLista = await api(`cliente_obrigacoes?obrigacao_id=eq.${obId}&select=cliente_id,observacao`);
@@ -1365,6 +1370,10 @@ async function verDemanda(obId, obNome) {
         </div>
       </div>
      </div>
+      ${qtdRepetidas > 0 ? `<div class="no-print" style="padding:10px 20px;background:#FEF3C7;border-top:1px solid #FCD34D;display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:13px;color:#92400E">
+        <span>⚠️ ${qtdRepetidas} empresa(s) estavam ligadas <strong>duas vezes</strong> a esta tarefa (aparece só uma linha de cada aqui).</span>
+        <button class="btn btn-sm btn-danger" onclick="removerVinculosRepetidos('${obId}','${obNome.replace(/'/g,"\\'")}')"><i class="ti ti-trash"></i> Remover repetidas</button>
+      </div>` : ''}
       <div style="padding:12px 20px;font-weight:600;color:var(--navy);border-top:1px solid var(--border)">✅ Empresas COM esta obrigação (${total})</div>
       ${total > 0 ? `<div class="no-print" style="padding:0 20px 10px;max-width:380px">
         <div style="position:relative">
@@ -1954,6 +1963,24 @@ function filtrarGerenciarObrig() {
   const termo = document.getElementById('busca-gerenciar-obrig').value.trim().toLowerCase();
   const filtrados = window._gerenciarClientesTodos.filter(cl => (cl.razao_social||'').toLowerCase().includes(termo));
   renderListaGerenciarObrig(filtrados);
+}
+
+// Apaga as ligações repetidas empresa↔tarefa de TODAS as tarefas: mantém uma por par (a que tem observação, se houver).
+async function removerVinculosRepetidos(obId, obNome) {
+  const todos = await api('cliente_obrigacoes?select=id,cliente_id,obrigacao_id,observacao');
+  if (!Array.isArray(todos)) { toast('Não consegui ler os vínculos.', 'error'); return; }
+  const grupos = {};
+  todos.forEach(r => { (grupos[r.cliente_id + '|' + r.obrigacao_id] = grupos[r.cliente_id + '|' + r.obrigacao_id] || []).push(r); });
+  const apagar = [];
+  Object.values(grupos).filter(g => g.length > 1).forEach(g => {
+    const manter = g.find(r => r.observacao) || g[0];
+    g.filter(r => r.id !== manter.id).forEach(r => apagar.push(r.id));
+  });
+  if (!apagar.length) { toast('Não há repetidas.', ''); return; }
+  if (!confirm(`Remover ${apagar.length} ligação(ões) repetida(s) em todas as tarefas? Fica uma de cada — nenhuma empresa sai de tarefa nenhuma.`)) return;
+  for (let i = 0; i < apagar.length; i += 50) await api(`cliente_obrigacoes?id=in.(${apagar.slice(i, i + 50).join(',')})`, 'DELETE');
+  toast(`${apagar.length} repetida(s) removida(s)!`, 'success');
+  verDemanda(obId, obNome);
 }
 
 async function salvarGerenciarObrig() {

@@ -2478,7 +2478,7 @@ function valorMaisRepetido(t) {
   const cont = {};
   (t.match(/(?<![\d.,])\d{1,3}(?:\.\d{3})*,\d{2}(?!\d)/g) || []).forEach(v => { if (parseFloat(v.replace(/\./g, '').replace(',', '.')) > 0) cont[v] = (cont[v] || 0) + 1; });
   const ordem = Object.entries(cont).sort((a, b) => b[1] - a[1] || parseFloat(b[0].replace(/\./g, '').replace(',', '.')) - parseFloat(a[0].replace(/\./g, '').replace(',', '.')));
-  return ordem.length && ordem[0][1] >= 2 ? ordem[0][0] : null;
+  return ordem.length && (ordem[0][1] >= 2 || ordem.length === 1) ? ordem[0][0] : null;
 }
 
 // Interpreta o texto lido por OCR de uma NFS-e (modelo nacional "DANFSe" ou e-Nota/ABRASF de prefeitura).
@@ -2694,7 +2694,9 @@ function linhaNotaLote(item, i) {
       </select>
       <select onchange="const [m,a]=this.value.split('-');window._loteArquivos[${i}].mesComp=+m;window._loteArquivos[${i}].anoComp=+a" style="height:30px;border-radius:6px;border:1.5px solid #E5E7EB;font-size:12px">${opcoesCompetenciaNota(item)}</select>
       ${n.naoLida ? `<span class="badge badge-warning">${item.ocrErro ? 'não consegui ler a imagem (' + item.ocrErro + '): digite o número e o valor' : 'PDF é imagem: digite o número e o valor'}</span>` : (n.valor == null ? '<span class="badge badge-warning">valor não encontrado</span>' : ((n.origem === 'ocr' || n.origem === 'texto') ? `<span class="badge badge-warning">${n.origem === 'ocr' ? 'lida da imagem' : 'valor deduzido do texto'}: confira o número e o valor</span>` : (n.origem === 'xml' ? '<span class="badge badge-success">lida do XML</span>' : '<span class="badge badge-success">lida do PDF</span>')))}
-    </div></td></tr>`;
+    </div>
+    ${n.valor == null && item.texto ? `<details style="margin-top:6px;font-size:11px;color:#6B7280"><summary style="cursor:pointer">Ver o texto que o sistema leu desta nota</summary><div style="margin-top:4px;max-height:140px;overflow:auto;white-space:pre-wrap">${escaparTexto(item.texto.slice(0, 1500))}</div></details>` : ''}
+    </td></tr>`;
 }
 
 function cancelarLote() {

@@ -2721,13 +2721,13 @@ function cadastroTemEndereco(cl) { return !!(cl && String(cl.logradouro || '').t
 
 async function gerarDeclaracaoDocx({ nome, cnpj, endereco, cidade, destinatario, dia, mes, ano }) {
   const esc = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const par = (t, o = {}) => `<w:p><w:pPr>${(o.antes || o.depois) ? `<w:spacing${o.antes ? ` w:before="${o.antes}"` : ''}${o.depois ? ` w:after="${o.depois}"` : ''}/>` : ''}${o.semRecuo ? '' : '<w:ind w:firstLine="1418"/>'}<w:jc w:val="${o.alinhar || 'both'}"/></w:pPr><w:r><w:t xml:space="preserve">${esc(t)}</w:t></w:r></w:p>`;
+  const par = (t, o = {}) => `<w:p><w:pPr><w:spacing w:before="${o.antes || 0}" w:after="${o.depois || 0}" w:line="240" w:lineRule="auto"/>${o.semRecuo ? '' : '<w:ind w:firstLine="1418"/>'}<w:jc w:val="${o.alinhar || 'both'}"/></w:pPr><w:r><w:t xml:space="preserve">${esc(t)}</w:t></w:r></w:p>`;
   const vazio = '<w:p/>';
   const dest = destinatario.trim();
   const dataLinha = `${(cidade || '').toUpperCase()} ${String(dia).padStart(2, '0')} DE ${meses[mes].toUpperCase()} DE ${ano}`.trim();
   const corpo = [
     `<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>ANEXO IV</w:t></w:r><w:r><w:br/><w:t>DECLARAÇÃO A SER APRESENTADA PELA PESSOA JURÍDICA CONSTANTE DO INCISO XI, ART. 4º DA IN 1234/2012</w:t></w:r></w:p>`,
-    vazio, vazio,
+    vazio,
     par('Ilmo. Sr.'),
     par(dest),
     par(`${nome}, com sede em ${endereco}, inscrita no CNPJ sob o nº ${formatarCNPJTexto(cnpj)}, DECLARA à ${dest}, para fins de não incidência na fonte do IRPJ, da Contribuição Social sobre o Lucro Líquido (CSLL), da Contribuição para o Financiamento da Seguridade Social (Cofins), e da Contribuição para o (PIS/Pasep), a que se refere o art. 64 da Lei nº 9.430, de 27 de dezembro de 1996, que é regularmente inscrita no Regime Especial Unificado de Arrecadação de Tributos e Contribuições devidos pelas Microempresas e Empresas de Pequeno Porte - Simples Nacional, de que trata o art. 12 da Lei Complementar nº 123, de 14 de dezembro de 2006.`, { antes: 240, depois: 120 }),
@@ -2736,9 +2736,9 @@ async function gerarDeclaracaoDocx({ nome, cnpj, endereco, cidade, destinatario,
     par('a) conserva em boa ordem, pelo prazo de 5 (cinco) anos, contado da data da emissão, os documentos que comprovam a origem de suas receitas e a efetivação de suas despesas, bem como a realização de quaisquer outros atos ou operações que venham a modificar sua situação patrimonial; e'),
     par('b) cumpre as obrigações acessórias a que está sujeita, em conformidade com a legislação pertinente;'),
     par('II - o signatário é representante legal desta empresa, assumindo o compromisso de informar à Secretaria da Receita Federal do Brasil e à pessoa jurídica pagadora, imediatamente, eventual desenquadramento da presente situação e está ciente de que a falsidade na prestação dessas informações, sem prejuízo do disposto no art. 32 da Lei nº 9.430, de 1996, o sujeitará, com as demais pessoas que para ela concorrem, às penalidades previstas na legislação criminal e tributária, relativas à falsidade ideológica (art. 299 do Decreto-Lei nº 2.848, de 7 de dezembro de 1940 - Código Penal) e ao crime contra a ordem tributária (art. 1º da Lei nº 8.137, de 27 de dezembro de 1990).'),
-    vazio, vazio,
+    vazio,
     par(dataLinha, { alinhar: 'left' }),
-    vazio, vazio, vazio,
+    vazio, vazio,
     par('Assinatura do Responsável', { alinhar: 'center', semRecuo: true }),
     vazio,
     par('______________________________________________', { alinhar: 'center', semRecuo: true })
@@ -2748,7 +2748,7 @@ async function gerarDeclaracaoDocx({ nome, cnpj, endereco, cidade, destinatario,
   zip.file('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>');
   zip.file('_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>');
   zip.file('word/_rels/document.xml.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>');
-  zip.file('word/styles.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles ${W}><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Times New Roman" w:eastAsia="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:sz w:val="24"/><w:szCs w:val="24"/><w:lang w:val="pt-BR" w:eastAsia="pt-BR" w:bidi="ar-SA"/></w:rPr></w:rPrDefault></w:docDefaults></w:styles>`);
+  zip.file('word/styles.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles ${W}><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Times New Roman" w:eastAsia="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:sz w:val="24"/><w:szCs w:val="24"/><w:lang w:val="pt-BR" w:eastAsia="pt-BR" w:bidi="ar-SA"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/><w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/></w:pPr></w:style></w:styles>`);
   zip.file('word/document.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document ${W}><w:body>${corpo}<w:sectPr><w:pgSz w:w="11907" w:h="16840"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" w:header="709" w:footer="709" w:gutter="0"/></w:sectPr></w:body></w:document>`);
   return zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
 }

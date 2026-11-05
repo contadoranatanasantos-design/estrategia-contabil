@@ -2450,7 +2450,8 @@ async function lerDadosNotaPDF(file) {
       numero,
       valor: valorTxt ? parseFloat(valorTxt.replace(/\./g, '').replace(',', '.')) : null,
       emissao: em ? { dia: +em[1], mes: +em[2] - 1, ano: +em[3] } : null,
-      competencia: comp ? { mes: +comp[1] - 1, ano: +comp[2] } : null
+      competencia: comp ? { mes: +comp[1] - 1, ano: +comp[2] } : null,
+      tomador: extrairTomador(texto)
     };
   } catch (e) { return null; }
 }
@@ -2503,6 +2504,26 @@ async function ocrPDF(file, escala = 2.5, psm = '3') {
   return (data.text || '').replace(/\s+/g, ' ').trim();
 }
 
+// Nome do comprador (tomador) da nota, lido do texto: vem depois da palavra "TOMADOR", no campo "Nome / Razão Social" ou "Nome Empresarial".
+// Tenta cada "TOMADOR" do texto e ignora o que for só nome de campo (o leitor de imagem às vezes embaralha as colunas).
+function extrairTomador(texto) {
+  const t = texto.replace(/\s+/g, ' ');
+  const campo = /(?:Nome\s*(?:[\/|Il]\s*)?)?(?:Nome Empresarial|Raz.o Social)\s*['"]?:?\s*(.+?)(?=\s+(?:Endere.o|Inscri|CEP|CPF|CNPJ|Munic|E-?mail|Telefone)|\s+\S*@|\s+\S*\.com|$)/i;
+  const rotuloSolto = /Munic|Sigla|IBGE|C.digo|Inscri|Endere|CNPJ|CPF|Telefone|Nome\b/i;
+  for (const ocorrencia of t.matchAll(/TOMADOR/gi)) {
+    const m = t.slice(ocorrencia.index, ocorrencia.index + 600).match(campo);
+    const nome = m ? m[1].replace(/^[:\s'"|]+/, '').replace(/[\s'"|]+$/, '') : '';
+    if (nome.length >= 3 && nome.length <= 120 && !rotuloSolto.test(nome)) return nome;
+  }
+  // Colunas embaralhadas: procura um nome de empresa (termina em LTDA, S.A, EIRELI, EPP, MEI) logo depois de "TOMADOR".
+  for (const ocorrencia of t.matchAll(/TOMADOR/gi)) {
+    const m = t.slice(ocorrencia.index, ocorrencia.index + 500).match(/((?:[A-ZÀ-Ú0-9&.\-]+ ){1,8}(?:LTDA\.?|S\.? ?A\.?|EIRELI|EPP|MEI))(?= |$)/);
+    const nome = m ? m[1].split(' ').filter((w, i, a) => !(i < a.length - 1 && /^(CEP|UF|IBGE|CNPJ|CPF|NIF|TOMADOR|ADQUIRENTE)$/.test(w))).join(' ').trim() : '';
+    if (nome.length >= 5 && !rotuloSolto.test(nome)) return nome;
+  }
+  return null;
+}
+
 // Última alternativa quando a nota não traz um rótulo claro (ex.: Maceió): o valor da nota costuma se repetir
 // (serviço, líquido, base de cálculo) e os demais campos são 0,00 — pega o valor não zerado que mais aparece.
 function valorMaisRepetido(t) {
@@ -2539,7 +2560,7 @@ function interpretarTextoNota(texto, nomeArquivo, origem = 'ocr') {
   if (!competencia && chave.length === 50) competencia = { mes: +chave.slice(38, 40) - 1, ano: 2000 + +chave.slice(36, 38) };
   if (competencia && (competencia.mes < 0 || competencia.mes > 11)) competencia = null;
   if (!valorTxt && !numero) return null;
-  return { numero, valor: valorTxt ? parseFloat(valorTxt.replace(/\./g, '').replace(',', '.')) : null, emissao, competencia, origem };
+  return { numero, valor: valorTxt ? parseFloat(valorTxt.replace(/\./g, '').replace(',', '.')) : null, emissao, competencia, origem, tomador: extrairTomador(t) };
 }
 
 // Lê o XML de uma NFS-e (portal nacional ou prefeituras no padrão ABRASF) — dados exatos, sem leitura de imagem.
@@ -2567,9 +2588,59 @@ function lerNotaXML(textoXml) {
       emissao: dataIso(texto('dhEmi', 'dhProc', 'DataEmissao')),
       competencia,
       cnpjs,
-      origem: 'xml'
+      origem: 'xml',
+      tomador: (() => { const no = todos.find(e => ['toma', 'TomadorServico', 'Tomador'].includes(e.localName)); const e = no && Array.from(no.getElementsByTagName('*')).find(x => ['xNome', 'RazaoSocial'].includes(x.localName)); return e ? e.textContent.trim() : null; })()
     };
   } catch (e) { return null; }
+}
+
+// ---- Declaração do Simples Nacional (Anexo IV da IN RFB 1234/2012), gerada em Word com os dados da nota e do cadastro ----
+function formatarCNPJTexto(c) {
+  const d = String(c || '').replace(/\D/g, '');
+  return d.length === 14 ? d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5') : String(c || '');
+}
+
+function enderecoCliente(cl) {
+  const partes = [cl.logradouro, cl.numero_endereco ? 'nº ' + cl.numero_endereco : '', cl.complemento, cl.bairro, [cl.municipio, cl.uf].filter(Boolean).join('-'), cl.cep ? 'CEP ' + cl.cep : '']
+    .map(x => String(x || '').trim()).filter(Boolean);
+  return partes.join(', ');
+}
+
+// Cadastro completo o bastante para a declaração: precisa de rua e cidade.
+function cadastroTemEndereco(cl) { return !!(cl && String(cl.logradouro || '').trim() && String(cl.municipio || '').trim()); }
+
+async function gerarDeclaracaoDocx({ nome, cnpj, endereco, cidade, destinatario, dia, mes, ano }) {
+  const esc = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const par = (t, o = {}) => `<w:p><w:pPr>${(o.antes || o.depois) ? `<w:spacing${o.antes ? ` w:before="${o.antes}"` : ''}${o.depois ? ` w:after="${o.depois}"` : ''}/>` : ''}${o.semRecuo ? '' : '<w:ind w:firstLine="1418"/>'}<w:jc w:val="${o.alinhar || 'both'}"/></w:pPr><w:r><w:t xml:space="preserve">${esc(t)}</w:t></w:r></w:p>`;
+  const vazio = '<w:p/>';
+  const dest = destinatario.trim();
+  const dataLinha = `${(cidade || '').toUpperCase()} ${String(dia).padStart(2, '0')} DE ${meses[mes].toUpperCase()} DE ${ano}`.trim();
+  const corpo = [
+    `<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>ANEXO IV</w:t></w:r><w:r><w:br/><w:t>DECLARAÇÃO A SER APRESENTADA PELA PESSOA JURÍDICA CONSTANTE DO INCISO XI, ART. 4º DA IN 1234/2012</w:t></w:r></w:p>`,
+    vazio, vazio,
+    par('Ilmo. Sr.'),
+    par(dest),
+    par(`${nome}, com sede em ${endereco}, inscrita no CNPJ sob o nº ${formatarCNPJTexto(cnpj)}, DECLARA à ${dest}, para fins de não incidência na fonte do IRPJ, da Contribuição Social sobre o Lucro Líquido (CSLL), da Contribuição para o Financiamento da Seguridade Social (Cofins), e da Contribuição para o (PIS/Pasep), a que se refere o art. 64 da Lei nº 9.430, de 27 de dezembro de 1996, que é regularmente inscrita no Regime Especial Unificado de Arrecadação de Tributos e Contribuições devidos pelas Microempresas e Empresas de Pequeno Porte - Simples Nacional, de que trata o art. 12 da Lei Complementar nº 123, de 14 de dezembro de 2006.`, { antes: 240, depois: 120 }),
+    par('Para esse efeito, a declarante informa que:'),
+    par('I - preenche os seguintes requisitos:'),
+    par('a) conserva em boa ordem, pelo prazo de 5 (cinco) anos, contado da data da emissão, os documentos que comprovam a origem de suas receitas e a efetivação de suas despesas, bem como a realização de quaisquer outros atos ou operações que venham a modificar sua situação patrimonial; e'),
+    par('b) cumpre as obrigações acessórias a que está sujeita, em conformidade com a legislação pertinente;'),
+    par('II - o signatário é representante legal desta empresa, assumindo o compromisso de informar à Secretaria da Receita Federal do Brasil e à pessoa jurídica pagadora, imediatamente, eventual desenquadramento da presente situação e está ciente de que a falsidade na prestação dessas informações, sem prejuízo do disposto no art. 32 da Lei nº 9.430, de 1996, o sujeitará, com as demais pessoas que para ela concorrem, às penalidades previstas na legislação criminal e tributária, relativas à falsidade ideológica (art. 299 do Decreto-Lei nº 2.848, de 7 de dezembro de 1940 - Código Penal) e ao crime contra a ordem tributária (art. 1º da Lei nº 8.137, de 27 de dezembro de 1990).'),
+    vazio, vazio,
+    par(dataLinha, { alinhar: 'left' }),
+    vazio, vazio, vazio,
+    par('Assinatura do Responsável', { alinhar: 'center', semRecuo: true }),
+    vazio,
+    par('______________________________________________', { alinhar: 'center', semRecuo: true })
+  ].join('');
+  const W = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"';
+  const zip = new JSZip();
+  zip.file('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>');
+  zip.file('_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>');
+  zip.file('word/_rels/document.xml.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>');
+  zip.file('word/styles.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles ${W}><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Times New Roman" w:eastAsia="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:sz w:val="24"/><w:szCs w:val="24"/><w:lang w:val="pt-BR" w:eastAsia="pt-BR" w:bidi="ar-SA"/></w:rPr></w:rPrDefault></w:docDefaults></w:styles>`);
+  zip.file('word/document.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document ${W}><w:body>${corpo}<w:sectPr><w:pgSz w:w="11907" w:h="16840"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" w:header="709" w:footer="709" w:gutter="0"/></w:sectPr></w:body></w:document>`);
+  return zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
 }
 
 function extrairCNPJs(texto) {
@@ -2644,6 +2715,18 @@ async function montarNotaLote(item) {
   const primeira = !!nota?.emissao && nota.emissao.dia <= 7;
   const tarefa = (window._tarefasNf || []).find(t => primeira ? /PRIMEIRA/i.test(t.nome) : /[UÚ]LTIMA/i.test(t.nome)) || (window._tarefasNf || [])[0];
   item.obrigId = tarefa ? tarefa.id : '';
+  // PDF com texto em que o comprador não foi achado: tenta ler a imagem da página (o texto às vezes sai fora de ordem).
+  if (!item.xmlNota && !item.viaOCR && item.nota && !item.nota.tomador) {
+    try { item.nota.tomador = extrairTomador(await ocrPDF(item.file)); } catch (e) {}
+  }
+  // Declaração do Simples: data = emissão da nota; comprador = tomador lido da nota (editável na linha).
+  const em = item.nota.emissao, hoje = new Date();
+  const dois = n => String(n).padStart(2, '0');
+  item.decl = {
+    gerar: true,
+    destinatario: item.nota.tomador || '',
+    data: em ? `${em.ano}-${dois(em.mes + 1)}-${dois(em.dia)}` : `${hoje.getFullYear()}-${dois(hoje.getMonth() + 1)}-${dois(hoje.getDate())}`
+  };
 }
 
 async function processarLote() {
@@ -2653,7 +2736,7 @@ async function processarLote() {
   const resultado = document.getElementById('lote-resultado');
   const andamento = (msg) => { resultado.innerHTML = `<div style="text-align:center;padding:20px;color:#9CA3AF"><i class="ti ti-loader"></i> ${msg}</div>`; };
   andamento('Lendo arquivos e identificando clientes...');
-  const clientes = await api('clientes?select=id,razao_social,nome_fantasia,cnpj&order=razao_social');
+  const clientes = await api('clientes?select=id,razao_social,nome_fantasia,cnpj,logradouro,numero_endereco,complemento,bairro,cep,municipio,uf&order=razao_social');
   const tarefasNf = await api('obrigacoes?precisa_nf=eq.true&select=id,nome&order=prazo');
   window._tarefasNf = Array.isArray(tarefasNf) ? tarefasNf : [];
   window._loteClientes = clientes;
@@ -2705,6 +2788,11 @@ async function processarLote() {
   renderLoteResultado(clientes);
 }
 
+function trocarClienteLote(i, clienteId) {
+  window._loteArquivos[i].clienteId = clienteId;
+  renderLoteResultado(window._loteClientes);
+}
+
 async function trocarPastaLote(i, pasta) {
   const item = window._loteArquivos[i];
   item.pasta = pasta;
@@ -2716,6 +2804,27 @@ function opcoesCompetenciaNota(item) {
   const mesAnterior = item.mesComp === 0 ? { mes: 11, ano: item.anoComp - 1 } : { mes: item.mesComp - 1, ano: item.anoComp };
   const opcoes = [{ mes: item.mesComp, ano: item.anoComp, rot: 'mês da nota' }, { ...mesAnterior, rot: 'mês anterior' }];
   return opcoes.map(o => `<option value="${o.mes}-${o.ano}" ${o.mes === item.mesComp && o.ano === item.anoComp ? 'selected' : ''}>${meses[o.mes].slice(0,3)}/${o.ano} (${o.rot})</option>`).join('');
+}
+
+function linhaDeclaracaoLote(item, i) {
+  const d = item.decl;
+  if (!d) return '';
+  const cl = (window._loteClientes || []).find(c => c.id === item.clienteId);
+  const semEndereco = !!item.clienteId && !cadastroTemEndereco(cl);
+  const val = (d.destinatario || '').replace(/"/g, '&quot;');
+  const aviso = semEndereco
+    ? '<span class="badge badge-danger">cadastro do cliente sem endereço/cidade: complete no cadastro para gerar</span>'
+    : (!d.destinatario ? '<span class="badge badge-warning">digite o comprador (tomador)</span>'
+      : (item.nota.tomador && d.destinatario === item.nota.tomador ? '<span class="badge badge-success">comprador lido da nota</span>' : ''));
+  return `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12px;margin-top:8px">
+      <label style="display:flex;gap:6px;align-items:center;font-weight:600;color:var(--navy);cursor:pointer"><input type="checkbox" ${d.gerar ? 'checked' : ''} onchange="window._loteArquivos[${i}].decl.gerar=this.checked"> Gerar declaração do Simples</label>
+      <span>para</span>
+      <input placeholder="Comprador (tomador)" value="${val}" oninput="window._loteArquivos[${i}].decl.destinatario=this.value" style="width:240px;height:30px;padding:0 6px;border-radius:6px;border:1.5px solid ${d.destinatario ? '#E5E7EB' : '#F59E0B'};font-size:12px">
+      <span>data</span>
+      <input type="date" value="${d.data}" onchange="window._loteArquivos[${i}].decl.data=this.value" style="height:30px;padding:0 6px;border-radius:6px;border:1.5px solid #E5E7EB;font-size:12px">
+      <span style="color:#6B7280">${cl && cl.municipio ? 'cidade: ' + escaparTexto(cl.municipio) : ''}</span>
+      ${aviso}
+    </div>`;
 }
 
 function linhaNotaLote(item, i) {
@@ -2733,6 +2842,7 @@ function linhaNotaLote(item, i) {
       <select onchange="const [m,a]=this.value.split('-');window._loteArquivos[${i}].mesComp=+m;window._loteArquivos[${i}].anoComp=+a" style="height:30px;border-radius:6px;border:1.5px solid #E5E7EB;font-size:12px">${opcoesCompetenciaNota(item)}</select>
       ${n.naoLida ? `<span class="badge badge-warning">${item.ocrErro ? 'não consegui ler a imagem (' + item.ocrErro + '): digite o número e o valor' : 'PDF é imagem: digite o número e o valor'}</span>` : (n.valor == null ? '<span class="badge badge-warning">valor não encontrado</span>' : ((n.origem === 'ocr' || n.origem === 'texto') ? `<span class="badge badge-warning">${n.origem === 'ocr' ? 'lida da imagem' : 'valor deduzido do texto'}: confira o número e o valor</span>` : (n.origem === 'xml' ? '<span class="badge badge-success">lida do XML</span>' : '<span class="badge badge-success">lida do PDF</span>')))}
     </div>
+    ${linhaDeclaracaoLote(item, i)}
     ${n.valor == null && item.texto ? `<details style="margin-top:6px;font-size:11px;color:#6B7280"><summary style="cursor:pointer">Ver o texto que o sistema leu desta nota</summary><div style="margin-top:4px;max-height:140px;overflow:auto;white-space:pre-wrap">${escaparTexto(item.texto.slice(0, 1500))}</div></details>` : ''}
     </td></tr>`;
 }
@@ -2754,7 +2864,7 @@ function renderLoteResultado(clientes) {
       <tbody>
         ${window._loteArquivos.map((item, i) => `<tr>
           <td style="font-weight:500">${item.file.name}${!item.clienteId ? ' <span class="badge badge-danger">não identificado</span>' : ''}</td>
-          <td><select onchange="window._loteArquivos[${i}].clienteId=this.value">
+          <td><select onchange="trocarClienteLote(${i}, this.value)">
             <option value="">Selecione...</option>
             ${clientes.map(c=>`<option value="${c.id}" ${c.id===item.clienteId?'selected':''}>${c.razao_social}</option>`).join('')}
           </select></td>
@@ -2776,7 +2886,7 @@ async function anexarLote() {
   const btn = document.getElementById('btn-anexar-lote');
   const original = btn.innerHTML;
   btn.disabled = true;
-  let sucesso = 0, semCliente = 0, duplicados = 0, notasLancadas = 0, notasJaLancadas = 0;
+  let sucesso = 0, semCliente = 0, duplicados = 0, notasLancadas = 0, notasJaLancadas = 0, declCriadas = 0, declJaExistiam = 0, declFaltaDados = 0, declErro = 0;
   for (const item of window._loteArquivos) {
     if (!item.clienteId) { semCliente++; continue; }
     btn.innerHTML = `<i class="ti ti-loader"></i> Enviando ${sucesso+1}/${window._loteArquivos.length}...`;
@@ -2805,11 +2915,35 @@ async function anexarLote() {
           if (Array.isArray(r)) notasLancadas++;
         }
       }
+      // Declaração do Simples Nacional: cria o Word com os dados do prestador (cadastro), o comprador e a data da nota.
+      if (ehNota && item.decl && item.decl.gerar) {
+        const cl = window._loteClientes.find(c => c.id === item.clienteId);
+        const destinatario = (item.decl.destinatario || '').trim();
+        if (!cadastroTemEndereco(cl) || !destinatario) declFaltaDados++;
+        else {
+          const [dAno, dMes, dDia] = (item.decl.data || '').split('-').map(Number);
+          const nomeDecl = `DECLARAÇÃO NF ${String(item.nota.numero || '').trim() || 'sem número'}.docx`;
+          if (await documentoJaExiste(item.clienteId, 'nf', null, nomeDecl, mesDoc, anoDoc)) declJaExistiam++;
+          else {
+            try {
+              const blob = await gerarDeclaracaoDocx({ nome: cl.razao_social, cnpj: cl.cnpj, endereco: enderecoCliente(cl), cidade: cl.municipio, destinatario, dia: dDia, mes: dMes - 1, ano: dAno });
+              const pathDecl = `${item.clienteId}/${anoDoc}-${String(mesDoc+1).padStart(2,'0')}/${Date.now()}-${sanitizarNomeArquivo(nomeDecl)}`;
+              const up = await storageFetch(`/object/documentos/${pathDecl}`, { method: 'POST', headers: { 'Content-Type': blob.type }, body: blob });
+              if (!up.ok) throw new Error('armazenamento recusou o arquivo (' + up.status + ') ' + await up.text());
+              const reg = await api('documentos', 'POST', { cliente_id: item.clienteId, mes: mesDoc, ano: anoDoc, nome_arquivo: nomeDecl, tipo: 'nf', storage_path: pathDecl });
+              if (!Array.isArray(reg) || !reg.length) throw new Error('não registrou');
+              declCriadas++;
+            } catch (e) { declErro++; console.error('Declaração não salva:', e); }
+          }
+        }
+      }
     } catch (e) {}
   }
   btn.disabled = false;
+  const textoDecl = (declCriadas || declJaExistiam || declFaltaDados || declErro)
+    ? ` ${declCriadas} declaração(ões) criada(s)${declJaExistiam ? `, ${declJaExistiam} já existia(m)` : ''}${declFaltaDados ? `, ${declFaltaDados} NÃO criada(s) por falta de endereço no cadastro ou do comprador` : ''}${declErro ? `, ${declErro} NÃO foi(ram) salva(s) por erro (avise o Claude)` : ''}.` : '';
   const textoNotas = (notasLancadas || notasJaLancadas) ? ` ${notasLancadas} nota(s) lançada(s) na tarefa${notasJaLancadas ? ` (${notasJaLancadas} já estava(m) lançada(s))` : ''}.` : '';
-  toast(`${sucesso} arquivo(s) anexado(s)${duplicados?`, ${duplicados} já existia(m) e foi(ram) ignorado(s)`:''}${semCliente?`, ${semCliente} sem cliente selecionado`:''}!${textoNotas}`, semCliente ? 'error' : 'success');
+  toast(`${sucesso} arquivo(s) anexado(s)${duplicados?`, ${duplicados} já existia(m) e foi(ram) ignorado(s)`:''}${semCliente?`, ${semCliente} sem cliente selecionado`:''}!${textoNotas}${textoDecl}`, (semCliente || declFaltaDados || declErro) ? 'error' : 'success');
   pagEmpresas();
 }
 

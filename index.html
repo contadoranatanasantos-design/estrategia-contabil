@@ -3504,7 +3504,9 @@ async function enviarPastaWhats(clienteId, pathStr, subpasta) {
     mensagem = textoEditado || `Olá! Segue a situação fiscal da ${cl.razao_social} referente a ${meses[mesSel]}/${anoSel}. Revise com atenção antes de enviar.`;
   } else {
     const assunto = subpasta ? `${info.label} — ${subpasta}` : info.label;
-    mensagem = `Prezado Cliente!\n\nCompartilhamos em anexo os documentos de ${assunto} da empresa ${cl.razao_social}.\n\nConte conosco se precisar de qualquer suporte ou esclarecimentos.\n\nAtenciosamente,\nEstratégia Contábil`;
+    mensagem = tipo === 'nf'
+      ? `Prezado cliente,\n\nSegue em anexo a NFS-e e a Declaração do Simples Nacional, conforme solicitado.\n\nEstamos à disposição!\n\nAtenciosamente,\n\nEquipe Estratégia Contábil`
+      : `Olá! Seguem em anexo os documentos de ${assunto} da empresa ${cl.razao_social}.\n\nQualquer dúvida, estamos à disposição.\nEstratégia Contábil`;
   }
   window.open(`whatsapp://send?phone=${numero}&text=${encodeURIComponent(mensagem)}`, '_blank');
   toast('Baixando os arquivos para você anexar...', 'success');

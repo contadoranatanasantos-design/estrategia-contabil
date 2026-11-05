@@ -142,6 +142,7 @@
       <div class="nav-section">Operacional</div>
       <div class="nav-item" onclick="ir('demandas',this)"><i class="ti ti-checkbox"></i> Gestão de Tarefas</div>
       <div class="nav-item" onclick="ir('empresas',this)"><i class="ti ti-building"></i> Gestão Documental</div>
+      <div class="nav-item" onclick="ir('lotes',this)"><i class="ti ti-cloud-upload"></i> Upload e Download</div>
       <div class="nav-item" onclick="ir('certificados',this)"><i class="ti ti-certificate"></i> Certificado Digital</div>
       <div class="nav-item" onclick="ir('processos',this)"><i class="ti ti-list-check"></i> Processos</div>
       <div class="nav-section">Financeiro</div>
@@ -310,7 +311,7 @@ document.getElementById('login-btn').onclick = login;
 document.getElementById('login-senha').onkeydown = e => { if(e.key==='Enter') login(); };
 
 // NAVEGAÇÃO
-const titulos = { dashboard:'Dashboard', clientes:'Carteira de Clientes', demandas:'Gestão de Tarefas', empresas:'Gestão Documental', certificados:'Certificado Digital', processos:'Processos', receber:'Contas a receber', pagar:'Contas a pagar', relatorios:'Relatórios', configuracoes:'Configurações' };
+const titulos = { dashboard:'Dashboard', clientes:'Carteira de Clientes', demandas:'Gestão de Tarefas', empresas:'Gestão Documental', lotes:'Upload e Download', certificados:'Certificado Digital', processos:'Processos', receber:'Contas a receber', pagar:'Contas a pagar', relatorios:'Relatórios', configuracoes:'Configurações' };
 function ir(pag, el) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   if (el) el.classList.add('active');
@@ -318,7 +319,7 @@ function ir(pag, el) {
   document.getElementById('page-title').textContent = titulos[pag] || pag;
   const c = document.getElementById('content');
   c.innerHTML = '<div style="text-align:center;padding:40px;color:#9CA3AF"><i class="ti ti-loader" style="font-size:32px"></i><br>Carregando...</div>';
-  setTimeout(() => { if(pag==='dashboard') pagDashboard(); else if(pag==='clientes') pagClientes(); else if(pag==='demandas') pagDemandas(); else if(pag==='empresas') pagEmpresas(); else if(pag==='certificados') pagCertificados(); else if(pag==='processos') pagProcessos(); else if(pag==='receber') pagReceber(); else if(pag==='pagar') pagPagar(); else if(pag==='relatorios') pagRelatorios(); else if(pag==='configuracoes') pagConfig(); }, 200);
+  setTimeout(() => { if(pag==='dashboard') pagDashboard(); else if(pag==='clientes') pagClientes(); else if(pag==='demandas') pagDemandas(); else if(pag==='empresas') pagEmpresas(); else if(pag==='lotes') pagLotes(); else if(pag==='certificados') pagCertificados(); else if(pag==='processos') pagProcessos(); else if(pag==='receber') pagReceber(); else if(pag==='pagar') pagPagar(); else if(pag==='relatorios') pagRelatorios(); else if(pag==='configuracoes') pagConfig(); }, 200);
 }
 
 function toast(msg, tipo='') { const t=document.getElementById('toast'); t.textContent=msg; t.className=`toast show ${tipo}`; setTimeout(()=>t.className='toast',3000); }
@@ -2162,6 +2163,42 @@ async function pagEmpresas() {
           ${meses.map((m,i)=>`<option value="${i}" ${i===mesSel?'selected':''}>${m}</option>`).join('')}
         </select>
         <input type="number" value="${anoSel}" onchange="anoSel=parseInt(this.value);pagEmpresas()" style="height:36px;width:80px;padding:0 10px;border-radius:8px;border:1px solid #E5E7EB;font-size:13px">
+        <button class="btn" onclick="ir('lotes')" title="Importar notas e guias em lote, baixar para enviar, limpar duplicados"><i class="ti ti-cloud-upload"></i> Upload e Download</button>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+      <button class="btn btn-sm filtro-empresa-btn btn-navy" id="filtro-empresa-todos" onclick="definirFiltroEmpresas('todos')">Todas (${clientesEmpresas.length})</button>
+      <button class="btn btn-sm filtro-empresa-btn" id="filtro-empresa-com" onclick="definirFiltroEmpresas('com')">Com anexos (${countCom})</button>
+      <button class="btn btn-sm filtro-empresa-btn" id="filtro-empresa-sem" onclick="definirFiltroEmpresas('sem')">Sem anexos (${countSem})</button>
+    </div>
+    <div class="field" style="max-width:360px;margin-bottom:16px">
+      <div style="position:relative">
+        <i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#9CA3AF"></i>
+        <input id="busca-empresa" placeholder="Buscar empresa..." oninput="filtrarEmpresas()" style="height:38px;padding:0 10px 0 34px;border-radius:8px;border:1.5px solid #E5E7EB;font-size:13px;width:100%">
+      </div>
+    </div>
+    <div id="lista-empresas">${renderListaEmpresas(clientesEmpresas)}</div>`;
+}
+
+// Tela "Upload e Download": importar em lote, baixar guias e notas para enviar, limpar duplicados.
+async function pagLotes() {
+  const c = document.getElementById('content');
+  c.innerHTML = `
+    <div class="page-header">
+      <div class="page-header-title">Upload e Download — ${meses[mesSel]} ${anoSel}</div>
+      <div style="display:flex;gap:8px">
+        <select onchange="mesSel=parseInt(this.value);pagLotes()" style="height:36px;padding:0 10px;border-radius:8px;border:1px solid #E5E7EB;font-size:13px">
+          ${meses.map((m,i)=>`<option value="${i}" ${i===mesSel?'selected':''}>${m}</option>`).join('')}
+        </select>
+        <input type="number" value="${anoSel}" onchange="anoSel=parseInt(this.value);pagLotes()" style="height:36px;width:80px;padding:0 10px;border-radius:8px;border:1px solid #E5E7EB;font-size:13px">
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Upload em lote</div></div>
+      <div class="card-body">
+        <div style="font-size:13px;color:#4B5563;margin-bottom:12px">Selecione vários PDFs de uma vez (guias, situação fiscal, notas fiscais etc.). O sistema lê o CNPJ de dentro de cada arquivo e identifica o cliente e a pasta sozinho — o que não conseguir identificar, você escolhe manualmente.<br>Nas <strong>notas fiscais</strong> ele também lê o número e o valor (mesmo quando o PDF é só imagem — a primeira vez baixa o leitor de imagem, leva alguns segundos). Se tiver o <strong>XML</strong> da nota do portal nacional, pode selecionar junto: o XML traz os dados exatos.</div>
+        <input type="file" id="lote-arquivos" multiple accept="application/pdf,.xml,text/xml,application/xml" onchange="processarLote()">
+        <div id="lote-resultado" style="margin-top:16px"></div>
       </div>
     </div>
     <div class="card">
@@ -2187,14 +2224,6 @@ async function pagEmpresas() {
       </div>
     </div>
     <div class="card">
-      <div class="card-header"><div class="card-title">Upload em lote</div></div>
-      <div class="card-body">
-        <div style="font-size:13px;color:#4B5563;margin-bottom:12px">Selecione vários PDFs de uma vez (guias, situação fiscal, notas fiscais etc.). O sistema lê o CNPJ de dentro de cada arquivo e identifica o cliente e a pasta sozinho — o que não conseguir identificar, você escolhe manualmente.<br>Nas <strong>notas fiscais</strong> ele também lê o número e o valor (mesmo quando o PDF é só imagem — a primeira vez baixa o leitor de imagem, leva alguns segundos). Se tiver o <strong>XML</strong> da nota do portal nacional, pode selecionar junto: o XML traz os dados exatos.</div>
-        <input type="file" id="lote-arquivos" multiple accept="application/pdf,.xml,text/xml,application/xml" onchange="processarLote()">
-        <div id="lote-resultado" style="margin-top:16px"></div>
-      </div>
-    </div>
-    <div class="card">
       <div class="card-header"><div class="card-title">Limpar arquivos duplicados</div></div>
       <div class="card-body">
         <div style="font-size:13px;color:#4B5563;margin-bottom:12px">Procura arquivos repetidos (mesma empresa, mesma pasta, mesmo mês e mesmo nome). Você vê o resumo antes, e só depois confirma: o sistema mantém a <strong>primeira cópia</strong> e apaga as repetidas.</div>
@@ -2208,19 +2237,7 @@ async function pagEmpresas() {
         </div>
         <div id="area-duplicados" style="margin-top:12px"></div>
       </div>
-    </div>
-    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
-      <button class="btn btn-sm filtro-empresa-btn btn-navy" id="filtro-empresa-todos" onclick="definirFiltroEmpresas('todos')">Todas (${clientesEmpresas.length})</button>
-      <button class="btn btn-sm filtro-empresa-btn" id="filtro-empresa-com" onclick="definirFiltroEmpresas('com')">Com anexos (${countCom})</button>
-      <button class="btn btn-sm filtro-empresa-btn" id="filtro-empresa-sem" onclick="definirFiltroEmpresas('sem')">Sem anexos (${countSem})</button>
-    </div>
-    <div class="field" style="max-width:360px;margin-bottom:16px">
-      <div style="position:relative">
-        <i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#9CA3AF"></i>
-        <input id="busca-empresa" placeholder="Buscar empresa..." oninput="filtrarEmpresas()" style="height:38px;padding:0 10px 0 34px;border-radius:8px;border:1.5px solid #E5E7EB;font-size:13px;width:100%">
-      </div>
-    </div>
-    <div id="lista-empresas">${renderListaEmpresas(clientesEmpresas)}</div>`;
+    </div>`;
 }
 
 async function procurarDuplicadosDocumentos() {
@@ -2269,7 +2286,7 @@ async function removerDuplicadosDocumentos() {
     apagados += lote.length;
   }
   toast(falhas > 0 ? `${apagados} apagada(s), ${falhas} não deu(ram) para apagar.` : `${apagados} cópia(s) repetida(s) apagada(s)!`, falhas > 0 ? 'error' : 'success');
-  pagEmpresas();
+  pagLotes();
 }
 
 async function baixarGuiasMes() {
@@ -3013,7 +3030,7 @@ async function anexarLote() {
     ? ` ${declCriadas} declaração(ões) criada(s)${declJaExistiam ? `, ${declJaExistiam} já existia(m)` : ''}${declFaltaDados ? `, ${declFaltaDados} NÃO criada(s) por falta de endereço no cadastro ou do comprador` : ''}${declErro ? `, ${declErro} NÃO foi(ram) salva(s) por erro (avise o Claude)` : ''}.` : '';
   const textoNotas = (notasLancadas || notasJaLancadas) ? ` ${notasLancadas} nota(s) lançada(s) na tarefa${notasJaLancadas ? ` (${notasJaLancadas} já estava(m) lançada(s))` : ''}.` : '';
   toast(`${sucesso} arquivo(s) anexado(s)${duplicados?`, ${duplicados} já existia(m) e foi(ram) ignorado(s)`:''}${semCliente?`, ${semCliente} sem cliente selecionado`:''}!${textoNotas}${textoDecl}`, (semCliente || declFaltaDados || declErro) ? 'error' : 'success');
-  pagEmpresas();
+  pagLotes();
 }
 
 function verPastaCliente(clienteId) {
@@ -5299,4 +5316,3 @@ if (TOKEN) iniciar();
 </script>
 </body>
 </html>
-

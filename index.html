@@ -2176,6 +2176,17 @@ async function pagEmpresas() {
       </div>
     </div>
     <div class="card">
+      <div class="card-header"><div class="card-title">Notas fiscais do mês — todos os clientes</div></div>
+      <div class="card-body">
+        <div style="font-size:13px;color:#4B5563;margin-bottom:12px">Baixa só as <strong>notas fiscais e as declarações do Simples</strong> da pasta "Notas Fiscais" de ${meses[mesSel]}/${anoSel}, em um .zip com uma pasta por cliente — pronto pra você anexar no WhatsApp de cada um. (Os arquivos XML não entram.)</div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <label style="font-size:13px;color:#4B5563">Só o que foi anexado a partir do dia <small>(opcional)</small>:</label>
+          <input type="date" id="notas-desde" style="height:36px;padding:0 10px;border-radius:8px;border:1px solid #E5E7EB;font-size:13px">
+          <button class="btn btn-navy" id="btn-baixar-notas-mes" onclick="baixarNotasMes()"><i class="ti ti-file-zip"></i> Baixar notas de ${meses[mesSel]}/${anoSel} (.zip por cliente)</button>
+        </div>
+      </div>
+    </div>
+    <div class="card">
       <div class="card-header"><div class="card-title">Upload em lote</div></div>
       <div class="card-body">
         <div style="font-size:13px;color:#4B5563;margin-bottom:12px">Selecione vários PDFs de uma vez (guias, situação fiscal, notas fiscais etc.). O sistema lê o CNPJ de dentro de cada arquivo e identifica o cliente e a pasta sozinho — o que não conseguir identificar, você escolhe manualmente.<br>Nas <strong>notas fiscais</strong> ele também lê o número e o valor (mesmo quando o PDF é só imagem — a primeira vez baixa o leitor de imagem, leva alguns segundos). Se tiver o <strong>XML</strong> da nota do portal nacional, pode selecionar junto: o XML traz os dados exatos.</div>
@@ -2314,6 +2325,64 @@ async function baixarGuiasMes() {
     toast(falhas > 0 ? `Baixado! ${feitos-falhas} arquivo(s) ok, ${falhas} não puderam ser incluídos.${sufixoPuladas}` : `${feitos} guia(s) baixada(s) com sucesso!${sufixoPuladas}`, falhas > 0 ? 'error' : 'success');
   } catch (e) {
     toast('Erro ao gerar o pacote de guias. Tente novamente.', 'error');
+  } finally {
+    btn.disabled = false; btn.innerHTML = textoOriginal;
+  }
+}
+
+// Baixa as notas fiscais (PDF) e declarações (Word) da pasta "Notas Fiscais" do mês, uma pasta por cliente.
+// Com a data preenchida, leva só o que foi anexado a partir dela (para não repetir o que já foi enviado).
+async function baixarNotasMes() {
+  const btn = document.getElementById('btn-baixar-notas-mes');
+  const textoOriginal = btn.innerHTML;
+  const desde = (document.getElementById('notas-desde').value || '').trim();
+  btn.disabled = true;
+  try {
+    btn.innerHTML = '<i class="ti ti-loader"></i> Buscando notas...';
+    const clientes = await api('clientes?select=id,razao_social');
+    const clientesMap = {};
+    clientes.forEach(cl => { clientesMap[cl.id] = cl.razao_social || cl.id; });
+    const todos = await api(`documentos?tipo=eq.nf&mes=eq.${mesSel}&ano=eq.${anoSel}&select=*&order=created_at`);
+    if (!Array.isArray(todos)) { toast('Não consegui buscar as notas. Tente novamente.', 'error'); return; }
+    const documentos = todos.filter(d => !/\.xml$/i.test(d.nome_arquivo || '') && (!desde || (d.created_at || '').slice(0, 10) >= desde));
+    if (documentos.length === 0) {
+      toast(todos.length === 0 ? `Nenhuma nota fiscal encontrada em ${meses[mesSel]}/${anoSel}.` : 'Nenhuma nota nova a partir dessa data.', 'error');
+      return;
+    }
+    const zip = new JSZip();
+    const usados = {};
+    let feitos = 0, falhas = 0;
+    for (const d of documentos) {
+      feitos++;
+      btn.innerHTML = `<i class="ti ti-loader"></i> Baixando ${feitos}/${documentos.length}...`;
+      try {
+        const r = await storageFetch(`/object/sign/documentos/${d.storage_path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expiresIn: 3600 }) });
+        const data = await r.json();
+        if (!data.signedURL) { falhas++; continue; }
+        const blob = await (await fetch(SB_URL + '/storage/v1' + data.signedURL)).blob();
+        const pasta = sanitizarPastaBackup(clientesMap[d.cliente_id] || 'sem-cliente');
+        // Nome original do arquivo ("NF 107.pdf", "DECLARAÇÃO NF 107.docx"); se repetir na mesma pasta, acrescenta (2), (3)...
+        let nome = (d.nome_arquivo || (d.storage_path || '').split('/').pop() || 'arquivo').replace(/[\\/:*?"<>|]/g, '_');
+        const chave = pasta + '/' + nome.toLowerCase();
+        usados[chave] = (usados[chave] || 0) + 1;
+        if (usados[chave] > 1) nome = nome.replace(/(\.[^.]+)?$/, ` (${usados[chave]})$1`);
+        zip.file(`${pasta}/${nome}`, blob);
+      } catch (e) { falhas++; }
+    }
+    btn.innerHTML = '<i class="ti ti-loader"></i> Compactando arquivo final...';
+    const zipBlob = await zip.generateAsync({ type: 'blob' });
+    const url = URL.createObjectURL(zipBlob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Notas-Fiscais-${meses[mesSel]}-${anoSel}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    const clientesNoZip = new Set(documentos.map(d => d.cliente_id)).size;
+    toast(falhas > 0 ? `Baixado! ${feitos - falhas} arquivo(s) ok, ${falhas} não puderam ser incluídos.` : `${feitos} arquivo(s) de ${clientesNoZip} cliente(s) baixado(s)!`, falhas > 0 ? 'error' : 'success');
+  } catch (e) {
+    toast('Erro ao gerar o pacote de notas. Tente novamente.', 'error');
   } finally {
     btn.disabled = false; btn.innerHTML = textoOriginal;
   }

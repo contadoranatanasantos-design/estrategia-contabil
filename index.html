@@ -2527,17 +2527,18 @@ async function lerDadosNotaPDF(file) {
       const c = itens.filter(i => formato.test(i.s) && Math.abs(i.x - r.x) < 60 && i.y < r.y && r.y - i.y < 40).sort((a, b) => b.y - a.y)[0];
       return c ? c.s : null;
     };
-    const valorTxt = (texto.match(/VALOR TOTAL DA NOTA\s*=?\s*R\$\s*([\d.]+,\d{2})/i) || [])[1] || aoLado(/^Valor do Servi[cç]o$/i, dinheiro) || aoLado(/^Valor L[ií]quido$/i, dinheiro);
-    const numero = (texto.match(/N[uú]mero da Nota\s+(\d{1,9})/i) || [])[1] || abaixo(/^NFS-?e$/i, /^\d{1,9}$/) || (file.name.match(/NF\s*(\d{1,9})/i) || [])[1] || null;
+    const valorTxt = (texto.match(/VALOR TOTAL DA NOTA\s*=?\s*R\$\s*([\d.]+,\d{2})/i) || [])[1] || aoLado(/^Valor do Servi[cç]o$/i, dinheiro) || (abaixo(/^VALOR DA OPERA..O \/ SERVI.O$/i, /^R\$\s*[\d.]+,\d{2}$/) || '').replace(/^R\$\s*/, '') || aoLado(/^Valor L[ií]quido$/i, dinheiro);
+    const numero = (texto.match(/N[uú]mero da Nota\s+(\d{1,9})/i) || [])[1] || (texto.match(/N.MERO DA NFS-?e\s+(\d{1,9})\s+COMPET/i) || [])[1] || abaixo(/^NFS-?e$/i, /^\d{1,9}$/) || (file.name.match(/NF\s*(\d{1,9})/i) || [])[1] || null;
     const em = texto.match(/Emiss[aã]o da NFS-?e\s+(\d{2})\/(\d{2})\/(\d{4})/i) || texto.match(/Data e Hora de Emiss[aã]o\s+(\d{2})\D+(\d{2})\D+(\d{4})/i) || texto.match(/\b(\d{2})\/(\d{2})\/(\d{4})\s+\d{2}:\d{2}/);
-    const comp = (aoLado(/^Compet[eê]ncia$/i, /^\d{2}\/\d{4}$/) || '').match(/(\d{2})\/(\d{4})/);
+    const comp = (aoLado(/^Compet[eê]ncia$/i, /^\d{2}\/\d{4}$/) || '').match(/(\d{2})\/(\d{4})/) || texto.match(/COMPET.NCIA DA NFS-?e\s+\d{2}\/(\d{2})\/(\d{4})/i);
     if (!valorTxt && !numero) return null;
     return {
       numero,
       valor: valorTxt ? parseFloat(valorTxt.replace(/\./g, '').replace(',', '.')) : null,
       emissao: em ? { dia: +em[1], mes: +em[2] - 1, ano: +em[3] } : null,
       competencia: comp ? { mes: +comp[1] - 1, ano: +comp[2] } : null,
-      tomador: extrairTomador(texto)
+      tomador: extrairTomador(texto),
+      endereco: extrairEnderecoPrestador(texto)
     };
   } catch (e) { return null; }
 }
@@ -2610,6 +2611,19 @@ function extrairTomador(texto) {
   return null;
 }
 
+// Endereço do emitente (prestador) impresso na nota nacional (DANFSe): serve para a declaração quando o cadastro está sem rua.
+function extrairEnderecoPrestador(texto) {
+  const t = texto.replace(/\s+/g, ' ');
+  const ini = t.search(/PRESTADOR\s*\/\s*FORNECEDOR/i);
+  if (ini < 0) return null;
+  const trecho = t.slice(ini, ini + 1000);
+  const rua = (trecho.match(/Endere.o\s+(.+?)\s+(?:E-?mail|Simples Nacional|Regime|TOMADOR)/i) || [])[1];
+  const cid = trecho.match(/Munic.pio\s*\/\s*Sigla UF\s+(.+?)\s*\/\s*([A-Z]{2})\b/);
+  const cep = (trecho.match(/CEP\s+[\d.]+\s*\/\s*(\d{2}\.?\d{3}-?\d{3})/) || [])[1];
+  if (!rua || rua.length < 5 || rua.length > 150 || !cid) return null;
+  return { texto: `${rua.trim()}, ${cid[1].trim()}-${cid[2]}${cep ? ', CEP ' + cep : ''}`, cidade: cid[1].trim() };
+}
+
 // Última alternativa quando a nota não traz um rótulo claro (ex.: Maceió): o valor da nota costuma se repetir
 // (serviço, líquido, base de cálculo) e os demais campos são 0,00 — pega o valor não zerado que mais aparece.
 function valorMaisRepetido(t) {
@@ -2646,7 +2660,7 @@ function interpretarTextoNota(texto, nomeArquivo, origem = 'ocr') {
   if (!competencia && chave.length === 50) competencia = { mes: +chave.slice(38, 40) - 1, ano: 2000 + +chave.slice(36, 38) };
   if (competencia && (competencia.mes < 0 || competencia.mes > 11)) competencia = null;
   if (!valorTxt && !numero) return null;
-  return { numero, valor: valorTxt ? parseFloat(valorTxt.replace(/\./g, '').replace(',', '.')) : null, emissao, competencia, origem, tomador: extrairTomador(t) };
+  return { numero, valor: valorTxt ? parseFloat(valorTxt.replace(/\./g, '').replace(',', '.')) : null, emissao, competencia, origem, tomador: extrairTomador(t), endereco: extrairEnderecoPrestador(t) };
 }
 
 // Lê o XML de uma NFS-e (portal nacional ou prefeituras no padrão ABRASF) — dados exatos, sem leitura de imagem.
@@ -2675,6 +2689,16 @@ function lerNotaXML(textoXml) {
       competencia,
       cnpjs,
       origem: 'xml',
+      endereco: (() => { try {
+        const emit = todos.find(e => e.localName === 'emit');
+        if (!emit) return null;
+        const f = (n) => { const e = Array.from(emit.getElementsByTagName('*')).find(x => x.localName === n && x.children.length === 0); return e ? e.textContent.trim() : ''; };
+        const rua = [f('xLgr'), f('nro'), f('xCpl'), f('xBairro')].filter(Boolean).join(', ');
+        const cidade = texto('xLocEmi');
+        if (!rua || !cidade) return null;
+        const cep = f('CEP').replace(/^(\d{2})(\d{3})(\d{3})$/, '$1.$2-$3'), uf = f('UF');
+        return { texto: `${rua}, ${cidade}${uf ? '-' + uf : ''}${cep ? ', CEP ' + cep : ''}`, cidade };
+      } catch (e) { return null; } })(),
       tomador: (() => { const no = todos.find(e => ['toma', 'TomadorServico', 'Tomador'].includes(e.localName)); const e = no && Array.from(no.getElementsByTagName('*')).find(x => ['xNome', 'RazaoSocial'].includes(x.localName)); return e ? e.textContent.trim() : null; })()
     };
   } catch (e) { return null; }
@@ -2896,11 +2920,13 @@ function linhaDeclaracaoLote(item, i) {
   const d = item.decl;
   if (!d) return '';
   const cl = (window._loteClientes || []).find(c => c.id === item.clienteId);
-  const semEndereco = !!item.clienteId && !cadastroTemEndereco(cl);
+  const usaEnderecoDaNota = !!item.clienteId && !cadastroTemEndereco(cl) && !!(item.nota && item.nota.endereco);
+  const semEndereco = !!item.clienteId && !cadastroTemEndereco(cl) && !usaEnderecoDaNota;
   const val = (d.destinatario || '').replace(/"/g, '&quot;');
   const aviso = semEndereco
-    ? '<span class="badge badge-danger">cadastro do cliente sem endereço/cidade: complete no cadastro para gerar</span>'
+    ? `<span class="badge badge-danger">falta no cadastro do cliente: ${[!String(cl.logradouro || '').trim() && 'rua (logradouro)', !String(cl.municipio || '').trim() && 'cidade'].filter(Boolean).join(' e ')}. Complete em Carteira de Clientes e importe de novo para gerar a declaração</span>`
     : (!d.destinatario ? '<span class="badge badge-warning">digite o comprador (tomador)</span>'
+      : usaEnderecoDaNota ? '<span class="badge badge-warning">cadastro sem rua: vou usar o endereço que está na nota. Confira e complete o cadastro depois</span>'
       : (item.nota.tomador && d.destinatario === item.nota.tomador ? '<span class="badge badge-success">comprador lido da nota</span>' : ''));
   return `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12px;margin-top:8px">
       <label style="display:flex;gap:6px;align-items:center;font-weight:600;color:var(--navy);cursor:pointer"><input type="checkbox" ${d.gerar ? 'checked' : ''} onchange="window._loteArquivos[${i}].decl.gerar=this.checked"> Gerar declaração do Simples</label>
@@ -2908,7 +2934,7 @@ function linhaDeclaracaoLote(item, i) {
       <input placeholder="Comprador (tomador)" value="${val}" oninput="window._loteArquivos[${i}].decl.destinatario=this.value" style="width:240px;height:30px;padding:0 6px;border-radius:6px;border:1.5px solid ${d.destinatario ? '#E5E7EB' : '#F59E0B'};font-size:12px">
       <span>data</span>
       <input type="date" value="${d.data}" onchange="window._loteArquivos[${i}].decl.data=this.value" style="height:30px;padding:0 6px;border-radius:6px;border:1.5px solid #E5E7EB;font-size:12px">
-      <span style="color:#6B7280">${cl && cl.municipio ? 'cidade: ' + escaparTexto(cl.municipio) : ''}</span>
+      <span style="color:#6B7280">${cadastroTemEndereco(cl) ? 'cidade: ' + escaparTexto(cl.municipio) : (item.nota.endereco ? 'cidade: ' + escaparTexto(item.nota.endereco.cidade) : '')}</span>
       ${aviso}
     </div>`;
 }
@@ -3005,14 +3031,15 @@ async function anexarLote() {
       if (ehNota && item.decl && item.decl.gerar) {
         const cl = window._loteClientes.find(c => c.id === item.clienteId);
         const destinatario = (item.decl.destinatario || '').trim();
-        if (!cadastroTemEndereco(cl) || !destinatario) declFaltaDados++;
+        const endNota = item.nota.endereco;
+        if ((!cadastroTemEndereco(cl) && !endNota) || !destinatario) declFaltaDados++;
         else {
           const [dAno, dMes, dDia] = (item.decl.data || '').split('-').map(Number);
           const nomeDecl = `DECLARAÇÃO NF ${String(item.nota.numero || '').trim() || 'sem número'}.docx`;
           if (await documentoJaExiste(item.clienteId, 'nf', null, nomeDecl, mesDoc, anoDoc)) declJaExistiam++;
           else {
             try {
-              const blob = await gerarDeclaracaoDocx({ nome: cl.razao_social, cnpj: cl.cnpj, endereco: enderecoCliente(cl), cidade: cl.municipio, destinatario, dia: dDia, mes: dMes - 1, ano: dAno });
+              const blob = await gerarDeclaracaoDocx({ nome: cl.razao_social, cnpj: cl.cnpj, endereco: cadastroTemEndereco(cl) ? enderecoCliente(cl) : endNota.texto, cidade: cadastroTemEndereco(cl) ? cl.municipio : endNota.cidade, destinatario, dia: dDia, mes: dMes - 1, ano: dAno });
               const pathDecl = `${item.clienteId}/${anoDoc}-${String(mesDoc+1).padStart(2,'0')}/${Date.now()}-${sanitizarNomeArquivo(nomeDecl)}`;
               const up = await storageFetch(`/object/documentos/${pathDecl}`, { method: 'POST', headers: { 'Content-Type': blob.type }, body: blob });
               if (!up.ok) throw new Error('armazenamento recusou o arquivo (' + up.status + ') ' + await up.text());

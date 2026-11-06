@@ -2215,12 +2215,13 @@ async function pagLotes() {
     <div class="card">
       <div class="card-header"><div class="card-title">Notas fiscais do mês — todos os clientes</div></div>
       <div class="card-body">
-        <div style="font-size:13px;color:#4B5563;margin-bottom:12px">Baixa só as <strong>notas fiscais e as declarações do Simples</strong> da pasta "Notas Fiscais" de ${meses[mesSel]}/${anoSel}, em um .zip com uma pasta por cliente — pronto pra você anexar no WhatsApp de cada um. (Os arquivos XML não entram.)</div>
+        <div style="font-size:13px;color:#4B5563;margin-bottom:12px">Baixa só as <strong>notas fiscais e as declarações do Simples</strong> da pasta "Notas Fiscais" de ${meses[mesSel]}/${anoSel}, em um .zip com uma pasta por cliente — pronto pra você anexar no WhatsApp de cada um. O sistema <strong>lembra o que já foi baixado</strong>: a cada clique vêm só as notas novas. (Os arquivos XML não entram.)</div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
           <label style="font-size:13px;color:#4B5563">Só o que foi anexado a partir do dia <small>(opcional)</small>:</label>
           <input type="date" id="notas-desde" style="height:36px;padding:0 10px;border-radius:8px;border:1px solid #E5E7EB;font-size:13px">
           <button class="btn btn-navy" id="btn-baixar-notas-mes" onclick="baixarNotasMes()"><i class="ti ti-file-zip"></i> Baixar notas de ${meses[mesSel]}/${anoSel} (.zip por cliente)</button>
         </div>
+        <label style="display:flex;gap:6px;align-items:center;font-size:13px;color:#4B5563;margin-top:10px;cursor:pointer"><input type="checkbox" id="notas-ja-baixadas"> Incluir também as que já baixei antes</label>
       </div>
     </div>
     <div class="card">
@@ -2311,6 +2312,7 @@ async function baixarGuiasMes() {
 
     const zip = new JSZip();
     let feitos = 0, falhas = 0;
+    const baixadosIds = [];
     for (const d of documentos) {
       feitos++;
       btn.innerHTML = `<i class="ti ti-loader"></i> Baixando ${feitos}/${documentos.length}...`;
@@ -2353,6 +2355,7 @@ async function baixarNotasMes() {
   const btn = document.getElementById('btn-baixar-notas-mes');
   const textoOriginal = btn.innerHTML;
   const desde = (document.getElementById('notas-desde').value || '').trim();
+  const incluirJaBaixadas = document.getElementById('notas-ja-baixadas').checked;
   btn.disabled = true;
   try {
     btn.innerHTML = '<i class="ti ti-loader"></i> Buscando notas...';
@@ -2361,9 +2364,14 @@ async function baixarNotasMes() {
     clientes.forEach(cl => { clientesMap[cl.id] = cl.razao_social || cl.id; });
     const todos = await api(`documentos?tipo=eq.nf&mes=eq.${mesSel}&ano=eq.${anoSel}&select=*&order=created_at`);
     if (!Array.isArray(todos)) { toast('Não consegui buscar as notas. Tente novamente.', 'error'); return; }
-    const documentos = todos.filter(d => !/\.xml$/i.test(d.nome_arquivo || '') && (!desde || (d.created_at || '').slice(0, 10) >= desde));
+    // A coluna "baixado_em" guarda quando cada arquivo já foi baixado (script SQL adicionar_baixado_em_documentos.sql).
+    const sabeLembrar = todos.length === 0 || Object.prototype.hasOwnProperty.call(todos[0], 'baixado_em');
+    const candidatos = todos.filter(d => !/\.xml$/i.test(d.nome_arquivo || '') && (!desde || (d.created_at || '').slice(0, 10) >= desde));
+    const documentos = (incluirJaBaixadas || !sabeLembrar) ? candidatos : candidatos.filter(d => !d.baixado_em);
+    const jaBaixadas = candidatos.length - documentos.length;
     if (documentos.length === 0) {
-      toast(todos.length === 0 ? `Nenhuma nota fiscal encontrada em ${meses[mesSel]}/${anoSel}.` : 'Nenhuma nota nova a partir dessa data.', 'error');
+      toast(todos.length === 0 ? `Nenhuma nota fiscal encontrada em ${meses[mesSel]}/${anoSel}.`
+        : (jaBaixadas > 0 ? `Todas as notas de ${meses[mesSel]}/${anoSel} já foram baixadas (${jaBaixadas}). Para baixar de novo, marque "Incluir também as que já baixei antes".` : 'Nenhuma nota nova a partir dessa data.'), jaBaixadas > 0 ? 'success' : 'error');
       return;
     }
     const zip = new JSZip();
@@ -2384,6 +2392,7 @@ async function baixarNotasMes() {
         usados[chave] = (usados[chave] || 0) + 1;
         if (usados[chave] > 1) nome = nome.replace(/(\.[^.]+)?$/, ` (${usados[chave]})$1`);
         zip.file(`${pasta}/${nome}`, blob);
+        baixadosIds.push(d.id);
       } catch (e) { falhas++; }
     }
     btn.innerHTML = '<i class="ti ti-loader"></i> Compactando arquivo final...';
@@ -2397,7 +2406,13 @@ async function baixarNotasMes() {
     a.remove();
     URL.revokeObjectURL(url);
     const clientesNoZip = new Set(documentos.map(d => d.cliente_id)).size;
-    toast(falhas > 0 ? `Baixado! ${feitos - falhas} arquivo(s) ok, ${falhas} não puderam ser incluídos.` : `${feitos} arquivo(s) de ${clientesNoZip} cliente(s) baixado(s)!`, falhas > 0 ? 'error' : 'success');
+    // Marca como baixados só os arquivos que entraram no .zip.
+    if (sabeLembrar && baixadosIds.length) {
+      const agora = new Date().toISOString();
+      for (let i = 0; i < baixadosIds.length; i += 50) await api(`documentos?id=in.(${baixadosIds.slice(i, i + 50).join(',')})`, 'PATCH', { baixado_em: agora });
+    }
+    const aviso = sabeLembrar ? (jaBaixadas > 0 ? ` (${jaBaixadas} já baixada(s) antes ficaram de fora)` : '') : ' Atenção: para o sistema lembrar o que já foi baixado, falta rodar o SQL "adicionar_baixado_em_documentos".';
+    toast(falhas > 0 ? `Baixado! ${feitos - falhas} arquivo(s) ok, ${falhas} não puderam ser incluídos.${aviso}` : `${feitos} arquivo(s) de ${clientesNoZip} cliente(s) baixado(s)!${aviso}`, falhas > 0 ? 'error' : 'success');
   } catch (e) {
     toast('Erro ao gerar o pacote de notas. Tente novamente.', 'error');
   } finally {

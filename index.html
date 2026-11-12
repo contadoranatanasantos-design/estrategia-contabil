@@ -3608,6 +3608,7 @@ function renderLegalizacao() {
   const anos = [...new Set([new Date().getFullYear(), ...casos.map(legAno)])].sort((a, b) => b - a);
   const doAno = casos.filter(c => legAno(c) === ano && (!servico || c.servico === servico));
   const abertas = casos.filter(c => c.servico === 'abertura' && c.fase === 'concluido' && legAno(c) === ano).length;
+  const concluidos = (tipo) => casos.filter(c => c.servico === tipo && c.fase === 'concluido' && legAno(c) === ano).length;
   const recebido = doAno.reduce((s, c) => s + (Number(c.valor_pago) || 0), 0);
   const aReceber = doAno.reduce((s, c) => s + legAReceber(c), 0);
   const emProposta = doAno.filter(c => c.fase === 'proposta').reduce((s, c) => s + (Number(c.valor) || 0), 0);
@@ -3625,6 +3626,11 @@ function renderLegalizacao() {
       <div class="metric" style="border-left-color:var(--success)"><div class="metric-label">Recebido</div><div class="metric-value" style="color:var(--success)">${legMoeda(recebido)}</div></div>
       <div class="metric" style="border-left-color:var(--danger)"><div class="metric-label">A receber</div><div class="metric-value" style="color:var(--danger)">${legMoeda(aReceber)}</div></div>
       <div class="metric"><div class="metric-label">Em proposta</div><div class="metric-value">${legMoeda(emProposta)}</div></div>
+    </div>
+    <div class="grid-4" style="grid-template-columns:repeat(3,1fr)">
+      <div class="metric"><div class="metric-label">Alterações concluídas em ${ano}</div><div class="metric-value">${concluidos('alteracao')}</div></div>
+      <div class="metric"><div class="metric-label">Baixas concluídas em ${ano}</div><div class="metric-value">${concluidos('baixa')}</div></div>
+      <div class="metric"><div class="metric-label">Outros serviços concluídos em ${ano}</div><div class="metric-value">${concluidos('outro')}</div></div>
     </div>
     <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center"><span style="font-size:12px;color:#6B7280">Financeiro:</span><button class="btn btn-sm" onclick="ir('recebleg')"><i class="ti ti-trending-up"></i> Legalização a receber</button><button class="btn btn-sm" onclick="ir('fatgeral')"><i class="ti ti-chart-bar"></i> Faturamento geral</button></div>
     <div id="leg-corpo"></div>

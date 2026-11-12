@@ -141,6 +141,7 @@
       <div class="nav-item" onclick="ir('clientes',this)"><i class="ti ti-users"></i> Carteira de Clientes</div>
       <div class="nav-section">Operacional</div>
       <div class="nav-item" onclick="ir('demandas',this)"><i class="ti ti-checkbox"></i> Gestão de Tarefas</div>
+      <div class="nav-item" onclick="ir('legalizacao',this)"><i class="ti ti-file-certificate"></i> Legalização</div>
       <div class="nav-item" onclick="ir('empresas',this)"><i class="ti ti-building"></i> Gestão Documental</div>
       <div class="nav-item" onclick="ir('lotes',this)"><i class="ti ti-cloud-upload"></i> Upload e Download</div>
       <div class="nav-item" onclick="ir('certificados',this)"><i class="ti ti-certificate"></i> Certificado Digital</div>
@@ -311,7 +312,7 @@ document.getElementById('login-btn').onclick = login;
 document.getElementById('login-senha').onkeydown = e => { if(e.key==='Enter') login(); };
 
 // NAVEGAÇÃO
-const titulos = { dashboard:'Dashboard', clientes:'Carteira de Clientes', demandas:'Gestão de Tarefas', empresas:'Gestão Documental', lotes:'Upload e Download', certificados:'Certificado Digital', processos:'Processos', receber:'Contas a receber', pagar:'Contas a pagar', relatorios:'Relatórios', configuracoes:'Configurações' };
+const titulos = { dashboard:'Dashboard', clientes:'Carteira de Clientes', demandas:'Gestão de Tarefas', legalizacao:'Legalização', empresas:'Gestão Documental', lotes:'Upload e Download', certificados:'Certificado Digital', processos:'Processos', receber:'Contas a receber', pagar:'Contas a pagar', relatorios:'Relatórios', configuracoes:'Configurações' };
 function ir(pag, el) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   if (el) el.classList.add('active');
@@ -319,7 +320,7 @@ function ir(pag, el) {
   document.getElementById('page-title').textContent = titulos[pag] || pag;
   const c = document.getElementById('content');
   c.innerHTML = '<div style="text-align:center;padding:40px;color:#9CA3AF"><i class="ti ti-loader" style="font-size:32px"></i><br>Carregando...</div>';
-  setTimeout(() => { if(pag==='dashboard') pagDashboard(); else if(pag==='clientes') pagClientes(); else if(pag==='demandas') pagDemandas(); else if(pag==='empresas') pagEmpresas(); else if(pag==='lotes') pagLotes(); else if(pag==='certificados') pagCertificados(); else if(pag==='processos') pagProcessos(); else if(pag==='receber') pagReceber(); else if(pag==='pagar') pagPagar(); else if(pag==='relatorios') pagRelatorios(); else if(pag==='configuracoes') pagConfig(); }, 200);
+  setTimeout(() => { if(pag==='dashboard') pagDashboard(); else if(pag==='clientes') pagClientes(); else if(pag==='demandas') pagDemandas(); else if(pag==='legalizacao') pagLegalizacao(); else if(pag==='empresas') pagEmpresas(); else if(pag==='lotes') pagLotes(); else if(pag==='certificados') pagCertificados(); else if(pag==='processos') pagProcessos(); else if(pag==='receber') pagReceber(); else if(pag==='pagar') pagPagar(); else if(pag==='relatorios') pagRelatorios(); else if(pag==='configuracoes') pagConfig(); }, 200);
 }
 
 function toast(msg, tipo='') { const t=document.getElementById('toast'); t.textContent=msg; t.className=`toast show ${tipo}`; setTimeout(()=>t.className='toast',3000); }
@@ -2222,6 +2223,7 @@ async function pagLotes() {
           <button class="btn btn-navy" id="btn-baixar-notas-mes" onclick="baixarNotasMes()"><i class="ti ti-file-zip"></i> Baixar notas de ${meses[mesSel]}/${anoSel} (.zip por cliente)</button>
         </div>
         <label style="display:flex;gap:6px;align-items:center;font-size:13px;color:#4B5563;margin-top:10px;cursor:pointer"><input type="checkbox" id="notas-ja-baixadas"> Incluir também as que já baixei antes</label>
+        <div id="notas-resultado" style="margin-top:10px;font-size:13px"></div>
       </div>
     </div>
     <div class="card">
@@ -2356,6 +2358,11 @@ async function baixarNotasMes() {
   const textoOriginal = btn.innerHTML;
   const desde = (document.getElementById('notas-desde').value || '').trim();
   const incluirJaBaixadas = document.getElementById('notas-ja-baixadas').checked;
+  const avisar = (msg, tipo) => {
+    toast(msg, tipo);
+    const el = document.getElementById('notas-resultado');
+    if (el) el.innerHTML = `<span style="color:${tipo === 'error' ? '#B91C1C' : '#047857'}">${tipo === 'error' ? '⚠️' : '✅'} ${escaparTexto(msg)}</span>`;
+  };
   btn.disabled = true;
   try {
     btn.innerHTML = '<i class="ti ti-loader"></i> Buscando notas...';
@@ -2363,14 +2370,14 @@ async function baixarNotasMes() {
     const clientesMap = {};
     clientes.forEach(cl => { clientesMap[cl.id] = cl.razao_social || cl.id; });
     const todos = await api(`documentos?tipo=eq.nf&mes=eq.${mesSel}&ano=eq.${anoSel}&select=*&order=created_at`);
-    if (!Array.isArray(todos)) { toast('Não consegui buscar as notas. Tente novamente.', 'error'); return; }
+    if (!Array.isArray(todos)) { avisar('Não consegui buscar as notas. Tente novamente.', 'error'); return; }
     // A coluna "baixado_em" guarda quando cada arquivo já foi baixado (script SQL adicionar_baixado_em_documentos.sql).
     const sabeLembrar = todos.length === 0 || Object.prototype.hasOwnProperty.call(todos[0], 'baixado_em');
     const candidatos = todos.filter(d => !/\.xml$/i.test(d.nome_arquivo || '') && (!desde || (d.created_at || '').slice(0, 10) >= desde));
     const documentos = (incluirJaBaixadas || !sabeLembrar) ? candidatos : candidatos.filter(d => !d.baixado_em);
     const jaBaixadas = candidatos.length - documentos.length;
     if (documentos.length === 0) {
-      toast(todos.length === 0 ? `Nenhuma nota fiscal encontrada em ${meses[mesSel]}/${anoSel}.`
+      avisar(todos.length === 0 ? `Nenhuma nota fiscal encontrada em ${meses[mesSel]}/${anoSel}.`
         : (jaBaixadas > 0 ? `Todas as notas de ${meses[mesSel]}/${anoSel} já foram baixadas (${jaBaixadas}). Para baixar de novo, marque "Incluir também as que já baixei antes".` : 'Nenhuma nota nova a partir dessa data.'), jaBaixadas > 0 ? 'success' : 'error');
       return;
     }
@@ -2412,9 +2419,9 @@ async function baixarNotasMes() {
       for (let i = 0; i < baixadosIds.length; i += 50) await api(`documentos?id=in.(${baixadosIds.slice(i, i + 50).join(',')})`, 'PATCH', { baixado_em: agora });
     }
     const aviso = sabeLembrar ? (jaBaixadas > 0 ? ` (${jaBaixadas} já baixada(s) antes ficaram de fora)` : '') : ' Atenção: para o sistema lembrar o que já foi baixado, falta rodar o SQL "adicionar_baixado_em_documentos".';
-    toast(falhas > 0 ? `Baixado! ${feitos - falhas} arquivo(s) ok, ${falhas} não puderam ser incluídos.${aviso}` : `${feitos} arquivo(s) de ${clientesNoZip} cliente(s) baixado(s)!${aviso}`, falhas > 0 ? 'error' : 'success');
+    avisar(falhas > 0 ? `Baixado! ${feitos - falhas} arquivo(s) ok, ${falhas} não puderam ser incluídos.${aviso}` : `${feitos} arquivo(s) de ${clientesNoZip} cliente(s) baixado(s)!${aviso}`, falhas > 0 ? 'error' : 'success');
   } catch (e) {
-    toast('Erro ao gerar o pacote de notas. Tente novamente.', 'error');
+    avisar('Erro ao gerar o pacote de notas: ' + (e && e.message ? e.message : e), 'error');
   } finally {
     btn.disabled = false; btn.innerHTML = textoOriginal;
   }
@@ -3528,6 +3535,297 @@ async function enviarPastaWhats(clienteId, pathStr, subpasta) {
   const qtd = await baixarTodosDocumentos(clienteId, tipo, subpasta, idsSelecionados);
   if (qtd > 0) toast(`${qtd} arquivo(s) baixado(s)! Agora é só anexar no WhatsApp.`, 'success');
   else toast('Nenhum arquivo encontrado nesta pasta para baixar.', 'error');
+}
+
+// LEGALIZAÇÃO (societário): quadro de casos, controle financeiro e faturamento geral
+const LEG_SERVICOS = { abertura: 'Abertura de empresa', alteracao: 'Alteração', baixa: 'Baixa', outro: 'Outro serviço' };
+const LEG_FASES = [
+  { k: 'contato', n: 'Contato' },
+  { k: 'proposta', n: 'Proposta enviada' },
+  { k: 'fechou_pago', n: 'Fechou e pagou' },
+  { k: 'executando', n: 'Executando' },
+  { k: 'concluido', n: 'Concluído' }
+];
+const LEG_FASE_NOME = { contato: 'Contato', proposta: 'Proposta enviada', fechou_pago: 'Fechou e pagou', executando: 'Executando', concluido: 'Concluído', nao_fechou: 'Não fechou' };
+// Etapas de cada serviço (a abertura segue o fluxo desenhado pela Natana; os demais são provisórios até ela passar o fluxo deles).
+const LEG_ETAPAS = {
+  abertura: [
+    { g: 'Documentos', itens: [['doc_lista', 'Lista de documentos enviada'], ['doc_ok', 'Documentos recebidos (OK)']] },
+    { g: 'Iniciando a abertura', itens: [['ab_consulta', 'Consulta prévia'], ['ab_prefeitura', 'Deferimento da prefeitura'], ['ab_fcn', 'FCN'], ['ab_taxas', 'Pagamento de taxas'], ['ab_protocolo', 'Protocolo']] },
+    { g: 'Após a saída do CNPJ', itens: [['cn_constitutivo', 'Documento constitutivo'], ['cn_cnpj', 'CNPJ'], ['cn_inscricoes', 'Inscrição estadual e municipal'], ['cn_localizacao', 'Taxa de localização e funcionamento'], ['cn_bombeiro', 'Taxa do Bombeiro'], ['cn_alvara', 'Alvará'], ['cn_envio', 'Envio dos documentos ao cliente']] }
+  ],
+  alteracao: [
+    { g: 'Documentos', itens: [['doc_lista', 'Lista de documentos enviada'], ['doc_ok', 'Documentos recebidos (OK)']] },
+    { g: 'Iniciando a alteração', itens: [['al_via', 'Redesim ou Junta Comercial'], ['al_consulta', 'Consulta prévia'], ['al_prefeitura', 'Deferimento da prefeitura'], ['al_fcn', 'FCN'], ['al_taxas', 'Pagamento de taxas'], ['al_protocolo', 'Protocolo']] },
+    { g: 'Após a alteração', itens: [['ap_constitutivo', 'Documento constitutivo alterado'], ['ap_cnpj', 'CNPJ atualizado'], ['ap_inscricoes', 'Inscrição estadual e municipal atualizadas'], ['ap_localizacao', 'Taxa de localização e funcionamento'], ['ap_bombeiro', 'Taxa do Bombeiro'], ['ap_alvara', 'Alvará'], ['ap_envio', 'Envio dos documentos ao cliente']] }
+  ],
+  baixa: [
+    { g: 'Informações da empresa', itens: [['ba_solicitar', 'Solicitar informações da empresa a ser baixada'], ['ba_ok', 'Informações recebidas (OK)']] },
+    { g: 'Iniciando a baixa', itens: [['bx_via', 'Redesim ou Junta Comercial'], ['bx_consulta', 'Consulta prévia'], ['bx_prefeitura', 'Deferimento da prefeitura'], ['bx_fcn', 'FCN'], ['bx_taxas', 'Pagamento de taxas'], ['bx_protocolo', 'Protocolo']] },
+    { g: 'Após a baixa', itens: [['bp_constitutivo', 'Documento constitutivo baixado'], ['bp_cnpj', 'CNPJ baixado'], ['bp_inscricoes', 'Inscrição estadual e municipal baixadas'], ['bp_envio', 'Envio dos documentos ao cliente']] }
+  ],
+  outro: [
+    { g: 'Andamento', itens: [['doc_lista', 'Lista de documentos enviada'], ['doc_ok', 'Documentos recebidos (OK)'], ['gen_protocolo', 'Serviço protocolado'], ['gen_envio', 'Documentos enviados ao cliente']] }
+  ]
+};
+const LEG_MENSAL = { g: 'Serviço mensal', itens: [['m_contrato', 'Envia contrato'], ['m_pastinha', 'Cria a pastinha do cliente'], ['m_certificado', 'Faz o certificado digital'], ['m_nfse', 'Cadastra NFS-e'], ['m_esocial', 'Envia o 1º e-Social + DCTF Web sem movimento']] };
+
+let legEstado = { aba: 'quadro', ano: new Date().getFullYear(), servico: '' };
+const legHoje = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const legMoeda = (n) => 'R$ ' + formatarMoeda(Number(n) || 0);
+const legGrupos = (c) => { const base = LEG_ETAPAS[c.servico] || LEG_ETAPAS.outro; return c.mensal === 'sim' ? [...base, LEG_MENSAL] : base; };
+// Ano do caso: o da conclusão (se concluído) ou o do primeiro contato.
+const legAno = (c) => +String((c.fase === 'concluido' && c.data_conclusao) ? c.data_conclusao : (c.data_contato || (c.created_at || '').slice(0, 10))).slice(0, 4);
+const legDataPag = (c) => c.data_pagamento || c.data_conclusao || c.data_contato || (c.created_at || '').slice(0, 10);
+const legAReceber = (c) => ['fechou_pago', 'executando', 'concluido'].includes(c.fase) ? Math.max(0, (Number(c.valor) || 0) - (Number(c.valor_pago) || 0)) : 0;
+function legProgresso(c) {
+  const feitas = (window._legEtapas || {})[c.id] || new Set();
+  const chaves = legGrupos(c).flatMap(g => g.itens.map(i => i[0]));
+  return { feitos: chaves.filter(k => feitas.has(k)).length, total: chaves.length };
+}
+
+async function pagLegalizacao() {
+  const c = document.getElementById('content');
+  const casos = await api('legalizacao_casos?select=*&order=created_at.desc');
+  if (!Array.isArray(casos)) {
+    c.innerHTML = '<div class="card"><div class="card-body"><strong>Falta rodar o SQL da Legalização.</strong><br>No Supabase, abra o SQL Editor e rode o arquivo <code>adicionar_legalizacao.sql</code> (está na pasta do sistema). Depois volte aqui.</div></div>';
+    return;
+  }
+  const et = await api('legalizacao_etapas?select=caso_id,chave');
+  const cls = await api('clientes?select=id,razao_social,telefone&status=eq.Ativo&order=razao_social');
+  window._legClientes = Array.isArray(cls) ? cls : [];
+  window._legCasos = casos;
+  window._legEtapas = {};
+  (Array.isArray(et) ? et : []).forEach(e => { (window._legEtapas[e.caso_id] = window._legEtapas[e.caso_id] || new Set()).add(e.chave); });
+  renderLegalizacao();
+}
+
+function renderLegalizacao() {
+  const casos = window._legCasos || [];
+  const { aba, ano, servico } = legEstado;
+  const anos = [...new Set([new Date().getFullYear(), ...casos.map(legAno)])].sort((a, b) => b - a);
+  const doAno = casos.filter(c => legAno(c) === ano && (!servico || c.servico === servico));
+  const abertas = casos.filter(c => c.servico === 'abertura' && c.fase === 'concluido' && legAno(c) === ano).length;
+  const recebido = doAno.reduce((s, c) => s + (Number(c.valor_pago) || 0), 0);
+  const aReceber = doAno.reduce((s, c) => s + legAReceber(c), 0);
+  const emProposta = doAno.filter(c => c.fase === 'proposta').reduce((s, c) => s + (Number(c.valor) || 0), 0);
+  const abaBtn = (k, rotulo) => `<button class="btn btn-sm ${aba === k ? 'btn-navy' : ''}" onclick="legEstado.aba='${k}';renderLegalizacao()">${rotulo}</button>`;
+  document.getElementById('content').innerHTML = `
+    <div class="page-header">
+      <div class="page-header-title">Legalização — ${ano}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <select onchange="legEstado.ano=+this.value;renderLegalizacao()" style="height:36px;padding:0 10px;border-radius:8px;border:1px solid #E5E7EB;font-size:13px">${anos.map(a => `<option value="${a}" ${a === ano ? 'selected' : ''}>${a}</option>`).join('')}</select>
+        <select onchange="legEstado.servico=this.value;renderLegalizacao()" style="height:36px;padding:0 10px;border-radius:8px;border:1px solid #E5E7EB;font-size:13px"><option value="">Todos os serviços</option>${Object.entries(LEG_SERVICOS).map(([k, n]) => `<option value="${k}" ${k === servico ? 'selected' : ''}>${n}</option>`).join('')}</select>
+        <button class="btn btn-navy" onclick="abrirCasoLeg('')"><i class="ti ti-plus"></i> Novo contato</button>
+      </div>
+    </div>
+    <div class="grid-4">
+      <div class="metric"><div class="metric-label">Empresas abertas em ${ano}</div><div class="metric-value">${abertas}</div></div>
+      <div class="metric" style="border-left-color:var(--success)"><div class="metric-label">Recebido</div><div class="metric-value" style="color:var(--success)">${legMoeda(recebido)}</div></div>
+      <div class="metric" style="border-left-color:var(--danger)"><div class="metric-label">A receber</div><div class="metric-value" style="color:var(--danger)">${legMoeda(aReceber)}</div></div>
+      <div class="metric"><div class="metric-label">Em proposta</div><div class="metric-value">${legMoeda(emProposta)}</div></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">${abaBtn('quadro', 'Quadro')}${abaBtn('financeiro', 'Controle financeiro')}${abaBtn('geral', 'Faturamento geral')}</div>
+    <div id="leg-corpo"></div>
+    <div class="overlay" id="ov-leg" onclick="if(event.target===this)fecharCasoLeg()"><div class="modal" style="width:680px"><div id="leg-modal-body"></div></div></div>`;
+  if (aba === 'quadro') renderLegQuadro();
+  else if (aba === 'financeiro') renderLegFinanceiro(doAno);
+  else renderLegGeral();
+}
+
+function renderLegQuadro() {
+  const { ano, servico } = legEstado;
+  const lista = (window._legCasos || []).filter(c => (!servico || c.servico === servico) && ((c.fase !== 'concluido' && c.fase !== 'nao_fechou') || legAno(c) === ano));
+  const cartao = (c) => {
+    const p = legProgresso(c);
+    const st = (Number(c.valor) || 0) <= 0 ? '' : ((Number(c.valor_pago) || 0) >= Number(c.valor) ? '<span class="badge badge-success">pago</span>' : ((Number(c.valor_pago) || 0) > 0 ? '<span class="badge badge-warning">pago em parte</span>' : '<span class="badge badge-warning">a pagar</span>'));
+    return `<div onclick="abrirCasoLeg('${c.id}')" style="background:#fff;border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:8px;cursor:pointer">
+      <div style="font-weight:600;font-size:13px;color:var(--navy)">${escaparTexto(c.nome)}</div>
+      <div style="font-size:12px;color:#6B7280;margin:2px 0 6px">${LEG_SERVICOS[c.servico] || c.servico}${['executando', 'concluido'].includes(c.fase) ? ` · ${p.feitos}/${p.total} etapas` : ''}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;font-size:12px"><span>${(Number(c.valor) || 0) > 0 ? legMoeda(c.valor) : '—'}</span>${st}</div>
+    </div>`;
+  };
+  const coluna = (f) => { const itens = lista.filter(c => c.fase === f.k); return `<div style="flex:1;min-width:190px;background:#F9FAFB;border-radius:12px;padding:10px"><div style="font-size:12px;font-weight:600;color:var(--navy);margin-bottom:8px">${f.n} <span style="color:#9CA3AF;font-weight:500">(${itens.length})</span></div>${itens.map(cartao).join('') || '<div style="font-size:12px;color:#9CA3AF;padding:6px">Nenhum</div>'}</div>`; };
+  const perdidos = lista.filter(c => c.fase === 'nao_fechou');
+  document.getElementById('leg-corpo').innerHTML = `<div style="display:flex;gap:10px;overflow-x:auto;align-items:flex-start;padding-bottom:6px">${LEG_FASES.map(coluna).join('')}</div>
+    ${perdidos.length ? `<div style="margin-top:14px;font-size:13px;color:#6B7280"><strong>Não fechou (${perdidos.length}):</strong> ${perdidos.map(c => `<a href="#" onclick="abrirCasoLeg('${c.id}');return false" style="margin-right:10px">${escaparTexto(c.nome)}</a>`).join('')}</div>` : ''}`;
+}
+
+function renderLegFinanceiro(lista) {
+  const linhas = lista.slice().sort((a, b) => String(a.data_contato || '').localeCompare(String(b.data_contato || '')));
+  const tv = linhas.reduce((s, c) => s + (Number(c.valor) || 0), 0), tp = linhas.reduce((s, c) => s + (Number(c.valor_pago) || 0), 0), tr = linhas.reduce((s, c) => s + legAReceber(c), 0);
+  const dataBR = (d) => d ? String(d).slice(0, 10).split('-').reverse().join('/') : '—';
+  document.getElementById('leg-corpo').innerHTML = `<div class="card"><table class="table"><thead><tr><th>Data</th><th>Cliente</th><th>Serviço</th><th>Fase</th><th style="text-align:right">Valor</th><th style="text-align:right">Pago</th><th style="text-align:right">A receber</th></tr></thead><tbody>
+    ${linhas.map(c => `<tr style="cursor:pointer" onclick="abrirCasoLeg('${c.id}')"><td>${dataBR(c.data_contato)}</td><td style="font-weight:500">${escaparTexto(c.nome)}</td><td>${LEG_SERVICOS[c.servico] || c.servico}</td><td>${LEG_FASE_NOME[c.fase] || c.fase}</td><td style="text-align:right">${legMoeda(c.valor)}</td><td style="text-align:right">${legMoeda(c.valor_pago)}</td><td style="text-align:right">${legAReceber(c) > 0 ? legMoeda(legAReceber(c)) : '—'}</td></tr>`).join('') || '<tr><td colspan="7" style="text-align:center;padding:20px;color:#9CA3AF">Nenhum serviço neste ano.</td></tr>'}
+    </tbody><tfoot><tr style="font-weight:600"><td colspan="4">Total</td><td style="text-align:right">${legMoeda(tv)}</td><td style="text-align:right">${legMoeda(tp)}</td><td style="text-align:right">${legMoeda(tr)}</td></tr></tfoot></table></div>`;
+}
+
+// Faturamento geral do escritório: honorários mensais recebidos + legalização recebida, mês a mês.
+async function renderLegGeral() {
+  const area = document.getElementById('leg-corpo');
+  area.innerHTML = '<div style="color:#9CA3AF;padding:20px">Calculando...</div>';
+  const ano = legEstado.ano;
+  const hon = await api(`honorarios_pagamentos?ano=eq.${ano}&select=mes,valor_recebido`);
+  const honMes = Array(12).fill(0), legMes = Array(12).fill(0);
+  (Array.isArray(hon) ? hon : []).forEach(h => { if (h.mes >= 0 && h.mes < 12) honMes[h.mes] += Number(h.valor_recebido) || 0; });
+  (window._legCasos || []).forEach(c => { const v = Number(c.valor_pago) || 0; const d = legDataPag(c); if (v && d && +String(d).slice(0, 4) === ano) legMes[+String(d).slice(5, 7) - 1] += v; });
+  const th = honMes.reduce((a, b) => a + b, 0), tl = legMes.reduce((a, b) => a + b, 0);
+  area.innerHTML = `<div class="card"><table class="table"><thead><tr><th>Mês</th><th style="text-align:right">Honorários mensais</th><th style="text-align:right">Legalização</th><th style="text-align:right">Total do mês</th></tr></thead><tbody>
+    ${meses.map((m, i) => `<tr><td>${m}</td><td style="text-align:right">${legMoeda(honMes[i])}</td><td style="text-align:right">${legMoeda(legMes[i])}</td><td style="text-align:right;font-weight:600">${legMoeda(honMes[i] + legMes[i])}</td></tr>`).join('')}
+    </tbody><tfoot><tr style="font-weight:600"><td>Total de ${ano}</td><td style="text-align:right">${legMoeda(th)}</td><td style="text-align:right">${legMoeda(tl)}</td><td style="text-align:right">${legMoeda(th + tl)}</td></tr></tfoot></table></div>
+    <div style="font-size:12px;color:#6B7280">Honorários mensais = o que foi dado baixa em Contas a receber. Legalização = valor pago registrado em cada serviço, no mês do pagamento.</div>`;
+}
+
+function legSincronizarCampos() {
+  const c = window._legAtual;
+  const v = (id) => { const e = document.getElementById(id); return e ? e.value : undefined; };
+  if (v('leg-nome') !== undefined) {
+    c.nome = v('leg-nome'); c.telefone = v('leg-tel'); c.servico = v('leg-servico'); c.fase = v('leg-fase');
+    c.valor = valorMascaraParaNumero(v('leg-valor') || '') || 0; c.valor_pago = valorMascaraParaNumero(v('leg-pago') || '') || 0;
+    c.data_pagamento = v('leg-datapag') || null; c.observacao = v('leg-obs');
+  }
+  if (v('leg-cliente') !== undefined) c.cliente_id = v('leg-cliente') || null;
+  if (v('leg-honorario') !== undefined) c.honorario_mensal = valorMascaraParaNumero(v('leg-honorario') || '') || 0;
+}
+
+// Escolheu um cliente da Carteira: o nome e o telefone vêm do cadastro dele.
+function legEscolherCliente(id) {
+  legSincronizarCampos();
+  const c = window._legAtual;
+  const cl = (window._legClientes || []).find(x => x.id === id);
+  c.cliente_id = id || null;
+  if (cl) { c.nome = cl.razao_social; if (!c.telefone) c.telefone = cl.telefone || ''; }
+  legRenderModal();
+}
+
+function abrirCasoLeg(id) {
+  const c = id ? { ...window._legCasos.find(x => x.id === id) } : { id: '', nome: '', telefone: '', servico: legEstado.servico || 'abertura', fase: 'contato', valor: 0, valor_pago: 0, data_contato: legHoje(), data_pagamento: null, mensal: null, honorario_mensal: 0, cliente_id: null, observacao: '' };
+  window._legAtual = c;
+  legRenderModal();
+  document.getElementById('ov-leg').classList.add('show');
+}
+
+function fecharCasoLeg() { fecharModal('ov-leg'); renderLegalizacao(); }
+
+function legRenderModal() {
+  const c = window._legAtual;
+  const feitas = (window._legEtapas || {})[c.id] || new Set();
+  const attr = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+  const grupos = c.id ? legGrupos(c) : [];
+  const mensalBloco = (c.id && c.servico === 'abertura' && ['executando', 'concluido'].includes(c.fase)) ? `
+    <div style="margin:14px 0;padding:12px;border:1px solid var(--border);border-radius:10px;background:#F9FAFB">
+      <div style="font-size:13px;font-weight:600;color:var(--navy);margin-bottom:8px">O cliente vai fechar o serviço mensal?</div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button class="btn btn-sm ${c.mensal === 'sim' ? 'btn-success' : ''}" onclick="legDefinirMensal('sim')">Sim</button>
+        <button class="btn btn-sm ${c.mensal === 'nao' ? 'btn-navy' : ''}" onclick="legDefinirMensal('nao')">Não</button>
+        ${c.mensal === 'nao' ? '<span style="font-size:12px;color:#6B7280">Serviço concluído, sem mensal.</span>' : ''}
+      </div>
+      ${c.mensal === 'sim' ? `<div style="margin-top:10px;display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+        <div class="field" style="margin:0"><label>Honorário mensal</label><input id="leg-honorario" inputmode="numeric" value="${(c.honorario_mensal ? formatarMoeda(c.honorario_mensal) : '')}" oninput="aplicarMascaraMoeda(this)" style="width:140px"></div>
+        ${c.cliente_id ? '<span class="badge badge-success">Já virou cliente</span><button class="btn btn-sm" onclick="fecharCasoLeg();ir(\'clientes\')">Abrir Carteira de Clientes</button>' : '<button class="btn btn-sm btn-success" onclick="virarClienteLeg()"><i class="ti ti-user-plus"></i> Virar cliente</button>'}
+      </div>` : ''}
+    </div>` : '';
+  document.getElementById('leg-modal-body').innerHTML = `
+    <div class="modal-title">${c.id ? escaparTexto(c.nome || 'Serviço') : 'Novo contato'}</div>
+    <div class="modal-sub">${c.id ? (LEG_SERVICOS[c.servico] || '') + ' · ' + (LEG_FASE_NOME[c.fase] || '') : 'Cadastre o possível cliente e o serviço que ele quer'}</div>
+    <div class="form-grid-2" style="margin-bottom:12px">
+      ${c.servico !== 'abertura' ? `<div class="field" style="grid-column:span 2"><label>Cliente da Carteira (opcional)</label><select id="leg-cliente" onchange="legEscolherCliente(this.value)"><option value="">Não é cliente da Carteira</option>${(window._legClientes || []).map(x => `<option value="${x.id}" ${x.id === c.cliente_id ? 'selected' : ''}>${escaparTexto(x.razao_social)}</option>`).join('')}</select></div>` : ''}
+      <div class="field"><label>Nome do cliente *</label><input id="leg-nome" value="${attr(c.nome)}" placeholder="Ex: Maria Silva"></div>
+      <div class="field"><label>Telefone</label><input id="leg-tel" value="${attr(c.telefone)}" placeholder="(82) 99999-9999"></div>
+      <div class="field"><label>Serviço</label><select id="leg-servico" onchange="legSincronizarCampos();legRenderModal()">${Object.entries(LEG_SERVICOS).map(([k, n]) => `<option value="${k}" ${k === c.servico ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
+      <div class="field"><label>Fase</label><select id="leg-fase" onchange="legSincronizarCampos();legRenderModal()">${Object.entries(LEG_FASE_NOME).map(([k, n]) => `<option value="${k}" ${k === c.fase ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
+      <div class="field"><label>Valor do serviço</label><input id="leg-valor" inputmode="numeric" value="${(c.valor ? formatarMoeda(c.valor) : '')}" oninput="aplicarMascaraMoeda(this)"></div>
+      <div class="field"><label>Valor pago</label><input id="leg-pago" inputmode="numeric" value="${(c.valor_pago ? formatarMoeda(c.valor_pago) : '')}" oninput="aplicarMascaraMoeda(this)"></div>
+      <div class="field"><label>Data do pagamento</label><input id="leg-datapag" type="date" value="${attr(c.data_pagamento || '')}"></div>
+      <div class="field"><label>Observação</label><input id="leg-obs" value="${attr(c.observacao)}"></div>
+    </div>
+    ${c.id ? `<div style="font-size:11px;color:#9CA3AF;margin:-4px 0 10px">Salve para guardar as alterações dos campos acima. As etapas abaixo são salvas ao marcar.</div>` : ''}
+    ${mensalBloco}
+    ${grupos.map(g => `<div style="margin:12px 0 4px;font-size:12px;font-weight:600;color:var(--navy);text-transform:uppercase;letter-spacing:.5px">${g.g}</div>
+      ${g.itens.map(([k, n]) => `<label style="display:flex;gap:8px;align-items:center;padding:5px 0;font-size:13px;cursor:pointer"><input type="checkbox" ${feitas.has(k) ? 'checked' : ''} onchange="legToggleEtapa('${k}',this.checked)"> <span style="${feitas.has(k) ? 'color:#6B7280;text-decoration:line-through' : ''}">${n}</span></label>`).join('')}`).join('')}
+    ${c.id && !['abertura', 'alteracao', 'baixa'].includes(c.servico) ? '<div style="font-size:11px;color:#9CA3AF;margin-top:8px">Lista provisória: o fluxo completo deste serviço será definido com você.</div>' : ''}
+    <div class="modal-actions" style="display:flex;gap:8px;margin-top:18px;align-items:center">
+      ${c.id ? `<button class="btn btn-danger btn-sm" onclick="excluirCasoLeg('${c.id}')"><i class="ti ti-trash"></i> Excluir</button>` : ''}
+      <span style="flex:1"></span>
+      <button class="btn" onclick="fecharCasoLeg()">Fechar</button>
+      <button class="btn btn-navy" onclick="salvarCasoLeg()">Salvar</button>
+    </div>`;
+}
+
+async function salvarCasoLeg() {
+  legSincronizarCampos();
+  const c = window._legAtual;
+  if (!String(c.nome || '').trim()) { toast('Preencha o nome do cliente!', 'error'); return; }
+  const hoje = legHoje();
+  const dados = { nome: c.nome.trim(), telefone: c.telefone || null, servico: c.servico, fase: c.fase, valor: c.valor || 0, valor_pago: c.valor_pago || 0, data_pagamento: c.data_pagamento || null, observacao: c.observacao || null, cliente_id: c.cliente_id || null };
+  if (dados.valor_pago > 0 && !dados.data_pagamento) dados.data_pagamento = hoje;
+  // Pagou e ainda estava em contato/proposta: passa para "Fechou e pagou".
+  if (dados.valor_pago > 0 && ['contato', 'proposta'].includes(dados.fase)) { dados.fase = 'fechou_pago'; toast('Pagamento registrado: o serviço foi para "Fechou e pagou".', 'success'); }
+  if (dados.fase === 'concluido' && !c.data_conclusao) dados.data_conclusao = hoje;
+  let id = c.id;
+  if (id) {
+    const r = await api(`legalizacao_casos?id=eq.${id}`, 'PATCH', dados);
+    if (!Array.isArray(r)) { toast('Não consegui salvar. Tente novamente.', 'error'); return; }
+  } else {
+    const r = await api('legalizacao_casos', 'POST', { ...dados, data_contato: c.data_contato || hoje });
+    if (!Array.isArray(r) || !r[0]) { toast('Não consegui salvar. Confira se o SQL da Legalização foi rodado.', 'error'); return; }
+    id = r[0].id;
+  }
+  toast('Salvo!', 'success');
+  await pagLegalizacao();
+  abrirCasoLeg(id);
+}
+
+async function legToggleEtapa(chave, marcado) {
+  legSincronizarCampos();
+  const c = window._legAtual;
+  if (!c.id) return;
+  const set = (window._legEtapas[c.id] = window._legEtapas[c.id] || new Set());
+  if (marcado) { set.add(chave); await api('legalizacao_etapas', 'POST', { caso_id: c.id, chave }); }
+  else { set.delete(chave); await api(`legalizacao_etapas?caso_id=eq.${c.id}&chave=eq.${chave}`, 'DELETE'); }
+  legRenderModal();
+}
+
+async function legDefinirMensal(v) {
+  legSincronizarCampos();
+  const c = window._legAtual;
+  const dados = { mensal: v };
+  // Não quer o mensal: o serviço acaba ali, como concluído.
+  if (v === 'nao') { dados.fase = 'concluido'; if (!c.data_conclusao) dados.data_conclusao = legHoje(); }
+  const r = await api(`legalizacao_casos?id=eq.${c.id}`, 'PATCH', dados);
+  if (!Array.isArray(r)) { toast('Não consegui salvar.', 'error'); return; }
+  Object.assign(c, dados);
+  const i = window._legCasos.findIndex(x => x.id === c.id);
+  if (i >= 0) window._legCasos[i] = { ...window._legCasos[i], ...dados };
+  legRenderModal();
+}
+
+// Fechou o mensal: cria o cadastro do cliente (com o honorário), marca "Cria a pastinha" e conclui o serviço.
+async function virarClienteLeg() {
+  legSincronizarCampos();
+  const c = window._legAtual;
+  if (!c.id || c.cliente_id) return;
+  if (!confirm(`Criar o cadastro de "${c.nome}" na Carteira de Clientes, com honorário de ${legMoeda(c.honorario_mensal)}?`)) return;
+  const res = await api('clientes', 'POST', { razao_social: c.nome, telefone: c.telefone || '', honorario: c.honorario_mensal || 0, data_inicio: legHoje(), status: 'Ativo' });
+  const novo = Array.isArray(res) ? res[0] : null;
+  if (!novo) { toast('Não consegui criar o cliente.', 'error'); return; }
+  const dados = { cliente_id: novo.id, mensal: 'sim', honorario_mensal: c.honorario_mensal || 0, fase: 'concluido', data_conclusao: c.data_conclusao || legHoje() };
+  await api(`legalizacao_casos?id=eq.${c.id}`, 'PATCH', dados);
+  const set = (window._legEtapas[c.id] = window._legEtapas[c.id] || new Set());
+  if (!set.has('m_pastinha')) { set.add('m_pastinha'); await api('legalizacao_etapas', 'POST', { caso_id: c.id, chave: 'm_pastinha' }); }
+  Object.assign(c, dados);
+  const i = window._legCasos.findIndex(x => x.id === c.id);
+  if (i >= 0) window._legCasos[i] = { ...window._legCasos[i], ...dados };
+  toast('Cliente criado! Complete o cadastro (CNPJ, endereço, obrigações) na Carteira de Clientes.', 'success');
+  legRenderModal();
+}
+
+async function excluirCasoLeg(id) {
+  if (!confirm('Excluir este serviço de legalização? Isso não pode ser desfeito. (Um cliente já criado a partir dele não é apagado.)')) return;
+  await api(`legalizacao_casos?id=eq.${id}`, 'DELETE');
+  toast('Serviço excluído.', 'success');
+  fecharModal('ov-leg');
+  pagLegalizacao();
 }
 
 // CERTIFICADO DIGITAL

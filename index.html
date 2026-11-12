@@ -3574,6 +3574,7 @@ const LEG_MENSAL = { g: 'Serviço mensal', itens: [['m_contrato', 'Envia contrat
 
 let legEstado = { aba: 'quadro', ano: new Date().getFullYear(), servico: '' };
 const legHoje = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const legServicoRotulo = (c) => (c.servico === 'outro' && c.descricao_servico) ? c.descricao_servico : (LEG_SERVICOS[c.servico] || c.servico || '');
 const legMoeda = (n) => 'R$ ' + formatarMoeda(Number(n) || 0);
 const legGrupos = (c) => { const base = LEG_ETAPAS[c.servico] || LEG_ETAPAS.outro; return c.mensal === 'sim' ? [...base, LEG_MENSAL] : base; };
 // Ano do caso: o da conclusão (se concluído) ou o do primeiro contato.
@@ -3623,14 +3624,14 @@ function renderLegalizacao() {
     </div>
     <div class="grid-4">
       <div class="metric"><div class="metric-label">Empresas abertas em ${ano}</div><div class="metric-value">${abertas}</div></div>
+      <div class="metric"><div class="metric-label">Empresas baixadas em ${ano}</div><div class="metric-value">${concluidos('baixa')}</div></div>
+      <div class="metric"><div class="metric-label">Empresas alteradas em ${ano}</div><div class="metric-value">${concluidos('alteracao')}</div></div>
+      <div class="metric"><div class="metric-label">Outros serviços contratados em ${ano}</div><div class="metric-value">${concluidos('outro')}</div></div>
+    </div>
+    <div class="grid-4" style="grid-template-columns:repeat(3,1fr)">
       <div class="metric" style="border-left-color:var(--success)"><div class="metric-label">Recebido</div><div class="metric-value" style="color:var(--success)">${legMoeda(recebido)}</div></div>
       <div class="metric" style="border-left-color:var(--danger)"><div class="metric-label">A receber</div><div class="metric-value" style="color:var(--danger)">${legMoeda(aReceber)}</div></div>
       <div class="metric"><div class="metric-label">Em proposta</div><div class="metric-value">${legMoeda(emProposta)}</div></div>
-    </div>
-    <div class="grid-4" style="grid-template-columns:repeat(3,1fr)">
-      <div class="metric"><div class="metric-label">Alterações concluídas em ${ano}</div><div class="metric-value">${concluidos('alteracao')}</div></div>
-      <div class="metric"><div class="metric-label">Baixas concluídas em ${ano}</div><div class="metric-value">${concluidos('baixa')}</div></div>
-      <div class="metric"><div class="metric-label">Outros serviços concluídos em ${ano}</div><div class="metric-value">${concluidos('outro')}</div></div>
     </div>
     <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center"><span style="font-size:12px;color:#6B7280">Financeiro:</span><button class="btn btn-sm" onclick="ir('recebleg')"><i class="ti ti-trending-up"></i> Legalização a receber</button><button class="btn btn-sm" onclick="ir('fatgeral')"><i class="ti ti-chart-bar"></i> Faturamento geral</button></div>
     <div id="leg-corpo"></div>
@@ -3646,7 +3647,7 @@ function renderLegQuadro() {
     const st = (Number(c.valor) || 0) <= 0 ? '' : ((Number(c.valor_pago) || 0) >= Number(c.valor) ? '<span class="badge badge-success">pago</span>' : ((Number(c.valor_pago) || 0) > 0 ? '<span class="badge badge-warning">pago em parte</span>' : '<span class="badge badge-warning">a pagar</span>'));
     return `<div onclick="abrirCasoLeg('${c.id}')" style="background:#fff;border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:8px;cursor:pointer">
       <div style="font-weight:600;font-size:13px;color:var(--navy)">${escaparTexto(c.nome)}</div>
-      <div style="font-size:12px;color:#6B7280;margin:2px 0 6px">${LEG_SERVICOS[c.servico] || c.servico}${['executando', 'concluido'].includes(c.fase) ? ` · ${p.feitos}/${p.total} etapas` : ''}</div>
+      <div style="font-size:12px;color:#6B7280;margin:2px 0 6px">${escaparTexto(legServicoRotulo(c))}${['executando', 'concluido'].includes(c.fase) ? ` · ${p.feitos}/${p.total} etapas` : ''}</div>
       <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;font-size:12px"><span>${(Number(c.valor) || 0) > 0 ? legMoeda(c.valor) : '—'}</span>${st}</div>
     </div>`;
   };
@@ -3701,7 +3702,7 @@ function renderReceberLeg() {
     </div>
     <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">${sitBtn('todos', 'Todos')}${sitBtn('pendentes', 'Pendentes')}${sitBtn('pagos', 'Pagos')}</div>
     <div class="card"><table class="table"><thead><tr><th>Início</th><th>Cliente</th><th>Serviço</th><th>Fase</th><th style="text-align:right">Valor</th><th style="text-align:right">Pago</th><th style="text-align:right">A receber</th><th>Ação</th></tr></thead><tbody>
-      ${lista.map(c => `<tr><td>${dataBR(c.data_contato)}</td><td style="font-weight:500">${escaparTexto(c.nome)}</td><td>${LEG_SERVICOS[c.servico] || c.servico}</td><td>${LEG_FASE_NOME[c.fase] || c.fase}</td><td style="text-align:right">${legMoeda(c.valor)}</td><td style="text-align:right">${legMoeda(c.valor_pago)}</td><td style="text-align:right">${legAReceber(c) > 0 ? `<span style="color:var(--danger);font-weight:500">${legMoeda(legAReceber(c))}</span>` : '—'}</td><td><button class="btn btn-sm btn-navy" onclick="abrirBaixaLeg('${c.id}')"><i class="ti ti-cash"></i> Baixa</button></td></tr>`).join('') || '<tr><td colspan="8" style="text-align:center;padding:20px;color:#9CA3AF">Nenhum serviço neste período.</td></tr>'}
+      ${lista.map(c => `<tr><td>${dataBR(c.data_contato)}</td><td style="font-weight:500">${escaparTexto(c.nome)}</td><td>${escaparTexto(legServicoRotulo(c))}</td><td>${LEG_FASE_NOME[c.fase] || c.fase}</td><td style="text-align:right">${legMoeda(c.valor)}</td><td style="text-align:right">${legMoeda(c.valor_pago)}</td><td style="text-align:right">${legAReceber(c) > 0 ? `<span style="color:var(--danger);font-weight:500">${legMoeda(legAReceber(c))}</span>` : '—'}</td><td><button class="btn btn-sm btn-navy" onclick="abrirBaixaLeg('${c.id}')"><i class="ti ti-cash"></i> Baixa</button></td></tr>`).join('') || '<tr><td colspan="8" style="text-align:center;padding:20px;color:#9CA3AF">Nenhum serviço neste período.</td></tr>'}
     </tbody><tfoot><tr style="font-weight:600"><td colspan="4">Total</td><td style="text-align:right">${legMoeda(tv)}</td><td style="text-align:right">${legMoeda(tp)}</td><td style="text-align:right">${legMoeda(tr)}</td><td></td></tr></tfoot></table></div>
     <div class="overlay" id="ov-leg-baixa" onclick="if(event.target===this)fecharModal('ov-leg-baixa')"><div class="modal" style="width:440px"><div id="leg-baixa-corpo"></div></div></div>`;
 }
@@ -3712,7 +3713,7 @@ function abrirBaixaLeg(id) {
   const saldo = Math.max(0, (Number(c.valor) || 0) - (Number(c.valor_pago) || 0));
   document.getElementById('leg-baixa-corpo').innerHTML = `
     <div class="modal-title">Baixa — ${escaparTexto(c.nome)}</div>
-    <div class="modal-sub">${LEG_SERVICOS[c.servico] || ''} · Valor ${legMoeda(c.valor)} · Já pago ${legMoeda(c.valor_pago)} · Falta ${legMoeda(saldo)}</div>
+    <div class="modal-sub">${escaparTexto(legServicoRotulo(c))} · Valor ${legMoeda(c.valor)} · Já pago ${legMoeda(c.valor_pago)} · Falta ${legMoeda(saldo)}</div>
     <div class="form-grid-2" style="margin-bottom:16px">
       <div class="field"><label>Valor recebido agora</label><input id="leg-baixa-valor" inputmode="numeric" value="${saldo ? formatarMoeda(saldo) : ''}" oninput="aplicarMascaraMoeda(this)"></div>
       <div class="field"><label>Data do recebimento</label><input id="leg-baixa-data" type="date" value="${legHoje()}"></div>
@@ -3785,6 +3786,7 @@ function legSincronizarCampos() {
     c.valor = valorMascaraParaNumero(v('leg-valor') || '') || 0; c.valor_pago = valorMascaraParaNumero(v('leg-pago') || '') || 0;
     c.data_pagamento = v('leg-datapag') || null; c.observacao = v('leg-obs');
   }
+  if (v('leg-desc') !== undefined) c.descricao_servico = v('leg-desc');
   if (v('leg-cliente') !== undefined) c.cliente_id = v('leg-cliente') || null;
   if (v('leg-honorario') !== undefined) c.honorario_mensal = valorMascaraParaNumero(v('leg-honorario') || '') || 0;
 }
@@ -3828,13 +3830,14 @@ function legRenderModal() {
     </div>` : '';
   document.getElementById('leg-modal-body').innerHTML = `
     <div class="modal-title">${c.id ? escaparTexto(c.nome || 'Serviço') : 'Novo contato'}</div>
-    <div class="modal-sub">${c.id ? (LEG_SERVICOS[c.servico] || '') + ' · ' + (LEG_FASE_NOME[c.fase] || '') : 'Cadastre o possível cliente e o serviço que ele quer'}</div>
+    <div class="modal-sub">${c.id ? legServicoRotulo(c) + ' · ' + (LEG_FASE_NOME[c.fase] || '') : 'Cadastre o possível cliente e o serviço que ele quer'}</div>
     <div class="form-grid-2" style="margin-bottom:12px">
       ${c.servico !== 'abertura' ? `<div class="field" style="grid-column:span 2"><label>Cliente da Carteira (opcional)</label><select id="leg-cliente" onchange="legEscolherCliente(this.value)"><option value="">Não é cliente da Carteira</option>${(window._legClientes || []).map(x => `<option value="${x.id}" ${x.id === c.cliente_id ? 'selected' : ''}>${escaparTexto(x.razao_social)}</option>`).join('')}</select></div>` : ''}
       <div class="field"><label>Nome do cliente *</label><input id="leg-nome" value="${attr(c.nome)}" placeholder="Ex: Maria Silva"></div>
       <div class="field"><label>Telefone</label><input id="leg-tel" value="${attr(c.telefone)}" placeholder="(82) 99999-9999"></div>
       <div class="field"><label>Serviço</label><select id="leg-servico" onchange="legSincronizarCampos();legRenderModal()">${Object.entries(LEG_SERVICOS).map(([k, n]) => `<option value="${k}" ${k === c.servico ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
       <div class="field"><label>Fase</label><select id="leg-fase" onchange="legSincronizarCampos();legRenderModal()">${Object.entries(LEG_FASE_NOME).map(([k, n]) => `<option value="${k}" ${k === c.fase ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
+      ${c.servico === 'outro' ? `<div class="field" style="grid-column:span 2"><label>Qual serviço?</label><input id="leg-desc" value="${attr(c.descricao_servico)}" placeholder="Ex: Pesquisa fiscal, Imposto de Renda"></div>` : ''}
       <div class="field"><label>Valor do serviço</label><input id="leg-valor" inputmode="numeric" value="${(c.valor ? formatarMoeda(c.valor) : '')}" oninput="aplicarMascaraMoeda(this)"></div>
       <div class="field"><label>Valor pago</label><input id="leg-pago" inputmode="numeric" value="${(c.valor_pago ? formatarMoeda(c.valor_pago) : '')}" oninput="aplicarMascaraMoeda(this)"></div>
       <div class="field"><label>Data do pagamento</label><input id="leg-datapag" type="date" value="${attr(c.data_pagamento || '')}"></div>
@@ -3859,6 +3862,7 @@ async function salvarCasoLeg() {
   if (!String(c.nome || '').trim()) { toast('Preencha o nome do cliente!', 'error'); return; }
   const hoje = legHoje();
   const dados = { nome: c.nome.trim(), telefone: c.telefone || null, servico: c.servico, fase: c.fase, valor: c.valor || 0, valor_pago: c.valor_pago || 0, data_pagamento: c.data_pagamento || null, observacao: c.observacao || null, cliente_id: c.cliente_id || null };
+  if (c.servico === 'outro') dados.descricao_servico = String(c.descricao_servico || '').trim() || null;
   if (dados.valor_pago > 0 && !dados.data_pagamento) dados.data_pagamento = hoje;
   // Pagou e ainda estava em contato/proposta: passa para "Fechou e pagou".
   if (dados.valor_pago > 0 && ['contato', 'proposta'].includes(dados.fase)) { dados.fase = 'fechou_pago'; toast('Pagamento registrado: o serviço foi para "Fechou e pagou".', 'success'); }
@@ -3866,10 +3870,10 @@ async function salvarCasoLeg() {
   let id = c.id;
   if (id) {
     const r = await api(`legalizacao_casos?id=eq.${id}`, 'PATCH', dados);
-    if (!Array.isArray(r)) { toast('Não consegui salvar. Tente novamente.', 'error'); return; }
+    if (!Array.isArray(r)) { toast('Não consegui salvar. Se foi em "Outro serviço", confira se o SQL adicionar_descricao_servico_legalizacao foi rodado.', 'error'); return; }
   } else {
     const r = await api('legalizacao_casos', 'POST', { ...dados, data_contato: c.data_contato || hoje });
-    if (!Array.isArray(r) || !r[0]) { toast('Não consegui salvar. Confira se o SQL da Legalização foi rodado.', 'error'); return; }
+    if (!Array.isArray(r) || !r[0]) { toast('Não consegui salvar. Confira se os SQLs da Legalização foram rodados.', 'error'); return; }
     id = r[0].id;
   }
   toast('Salvo!', 'success');

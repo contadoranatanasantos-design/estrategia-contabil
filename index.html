@@ -147,7 +147,9 @@
       <div class="nav-item" onclick="ir('certificados',this)"><i class="ti ti-certificate"></i> Certificado Digital</div>
       <div class="nav-item" onclick="ir('processos',this)"><i class="ti ti-list-check"></i> Processos</div>
       <div class="nav-section">Financeiro</div>
-      <div class="nav-item" onclick="ir('receber',this)"><i class="ti ti-trending-up"></i> Contas a receber</div>
+      <div class="nav-item" onclick="ir('receber',this)"><i class="ti ti-trending-up"></i> Receber — Mensais</div>
+      <div class="nav-item" onclick="ir('recebleg',this)"><i class="ti ti-file-certificate"></i> Receber — Legalização</div>
+      <div class="nav-item" onclick="ir('fatgeral',this)"><i class="ti ti-chart-bar"></i> Faturamento geral</div>
       <div class="nav-item" onclick="ir('pagar',this)"><i class="ti ti-trending-down"></i> Contas a pagar</div>
       <div class="nav-section">Relatórios</div>
       <div class="nav-item" onclick="ir('relatorios',this)"><i class="ti ti-report"></i> Relatórios</div>
@@ -312,7 +314,7 @@ document.getElementById('login-btn').onclick = login;
 document.getElementById('login-senha').onkeydown = e => { if(e.key==='Enter') login(); };
 
 // NAVEGAÇÃO
-const titulos = { dashboard:'Dashboard', clientes:'Carteira de Clientes', demandas:'Gestão de Tarefas', legalizacao:'Legalização', empresas:'Gestão Documental', lotes:'Upload e Download', certificados:'Certificado Digital', processos:'Processos', receber:'Contas a receber', pagar:'Contas a pagar', relatorios:'Relatórios', configuracoes:'Configurações' };
+const titulos = { dashboard:'Dashboard', clientes:'Carteira de Clientes', demandas:'Gestão de Tarefas', legalizacao:'Legalização', empresas:'Gestão Documental', lotes:'Upload e Download', recebleg:'Contas a receber — Legalização', fatgeral:'Faturamento geral', certificados:'Certificado Digital', processos:'Processos', receber:'Contas a receber — Mensais', pagar:'Contas a pagar', relatorios:'Relatórios', configuracoes:'Configurações' };
 function ir(pag, el) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   if (el) el.classList.add('active');
@@ -320,7 +322,7 @@ function ir(pag, el) {
   document.getElementById('page-title').textContent = titulos[pag] || pag;
   const c = document.getElementById('content');
   c.innerHTML = '<div style="text-align:center;padding:40px;color:#9CA3AF"><i class="ti ti-loader" style="font-size:32px"></i><br>Carregando...</div>';
-  setTimeout(() => { if(pag==='dashboard') pagDashboard(); else if(pag==='clientes') pagClientes(); else if(pag==='demandas') pagDemandas(); else if(pag==='legalizacao') pagLegalizacao(); else if(pag==='empresas') pagEmpresas(); else if(pag==='lotes') pagLotes(); else if(pag==='certificados') pagCertificados(); else if(pag==='processos') pagProcessos(); else if(pag==='receber') pagReceber(); else if(pag==='pagar') pagPagar(); else if(pag==='relatorios') pagRelatorios(); else if(pag==='configuracoes') pagConfig(); }, 200);
+  setTimeout(() => { if(pag==='dashboard') pagDashboard(); else if(pag==='clientes') pagClientes(); else if(pag==='demandas') pagDemandas(); else if(pag==='legalizacao') pagLegalizacao(); else if(pag==='recebleg') pagReceberLeg(); else if(pag==='fatgeral') pagFaturamentoGeral(); else if(pag==='empresas') pagEmpresas(); else if(pag==='lotes') pagLotes(); else if(pag==='certificados') pagCertificados(); else if(pag==='processos') pagProcessos(); else if(pag==='receber') pagReceber(); else if(pag==='pagar') pagPagar(); else if(pag==='relatorios') pagRelatorios(); else if(pag==='configuracoes') pagConfig(); }, 200);
 }
 
 function toast(msg, tipo='') { const t=document.getElementById('toast'); t.textContent=msg; t.className=`toast show ${tipo}`; setTimeout(()=>t.className='toast',3000); }
@@ -3609,7 +3611,6 @@ function renderLegalizacao() {
   const recebido = doAno.reduce((s, c) => s + (Number(c.valor_pago) || 0), 0);
   const aReceber = doAno.reduce((s, c) => s + legAReceber(c), 0);
   const emProposta = doAno.filter(c => c.fase === 'proposta').reduce((s, c) => s + (Number(c.valor) || 0), 0);
-  const abaBtn = (k, rotulo) => `<button class="btn btn-sm ${aba === k ? 'btn-navy' : ''}" onclick="legEstado.aba='${k}';renderLegalizacao()">${rotulo}</button>`;
   document.getElementById('content').innerHTML = `
     <div class="page-header">
       <div class="page-header-title">Legalização — ${ano}</div>
@@ -3625,12 +3626,10 @@ function renderLegalizacao() {
       <div class="metric" style="border-left-color:var(--danger)"><div class="metric-label">A receber</div><div class="metric-value" style="color:var(--danger)">${legMoeda(aReceber)}</div></div>
       <div class="metric"><div class="metric-label">Em proposta</div><div class="metric-value">${legMoeda(emProposta)}</div></div>
     </div>
-    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">${abaBtn('quadro', 'Quadro')}${abaBtn('financeiro', 'Controle financeiro')}${abaBtn('geral', 'Faturamento geral')}</div>
+    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center"><span style="font-size:12px;color:#6B7280">Financeiro:</span><button class="btn btn-sm" onclick="ir('recebleg')"><i class="ti ti-trending-up"></i> Legalização a receber</button><button class="btn btn-sm" onclick="ir('fatgeral')"><i class="ti ti-chart-bar"></i> Faturamento geral</button></div>
     <div id="leg-corpo"></div>
     <div class="overlay" id="ov-leg" onclick="if(event.target===this)fecharCasoLeg()"><div class="modal" style="width:680px"><div id="leg-modal-body"></div></div></div>`;
-  if (aba === 'quadro') renderLegQuadro();
-  else if (aba === 'financeiro') renderLegFinanceiro(doAno);
-  else renderLegGeral();
+  renderLegQuadro();
 }
 
 function renderLegQuadro() {
@@ -3651,29 +3650,125 @@ function renderLegQuadro() {
     ${perdidos.length ? `<div style="margin-top:14px;font-size:13px;color:#6B7280"><strong>Não fechou (${perdidos.length}):</strong> ${perdidos.map(c => `<a href="#" onclick="abrirCasoLeg('${c.id}');return false" style="margin-right:10px">${escaparTexto(c.nome)}</a>`).join('')}</div>` : ''}`;
 }
 
-function renderLegFinanceiro(lista) {
-  const linhas = lista.slice().sort((a, b) => String(a.data_contato || '').localeCompare(String(b.data_contato || '')));
-  const tv = linhas.reduce((s, c) => s + (Number(c.valor) || 0), 0), tp = linhas.reduce((s, c) => s + (Number(c.valor_pago) || 0), 0), tr = linhas.reduce((s, c) => s + legAReceber(c), 0);
-  const dataBR = (d) => d ? String(d).slice(0, 10).split('-').reverse().join('/') : '—';
-  document.getElementById('leg-corpo').innerHTML = `<div class="card"><table class="table"><thead><tr><th>Data</th><th>Cliente</th><th>Serviço</th><th>Fase</th><th style="text-align:right">Valor</th><th style="text-align:right">Pago</th><th style="text-align:right">A receber</th></tr></thead><tbody>
-    ${linhas.map(c => `<tr style="cursor:pointer" onclick="abrirCasoLeg('${c.id}')"><td>${dataBR(c.data_contato)}</td><td style="font-weight:500">${escaparTexto(c.nome)}</td><td>${LEG_SERVICOS[c.servico] || c.servico}</td><td>${LEG_FASE_NOME[c.fase] || c.fase}</td><td style="text-align:right">${legMoeda(c.valor)}</td><td style="text-align:right">${legMoeda(c.valor_pago)}</td><td style="text-align:right">${legAReceber(c) > 0 ? legMoeda(legAReceber(c)) : '—'}</td></tr>`).join('') || '<tr><td colspan="7" style="text-align:center;padding:20px;color:#9CA3AF">Nenhum serviço neste ano.</td></tr>'}
-    </tbody><tfoot><tr style="font-weight:600"><td colspan="4">Total</td><td style="text-align:right">${legMoeda(tv)}</td><td style="text-align:right">${legMoeda(tp)}</td><td style="text-align:right">${legMoeda(tr)}</td></tr></tfoot></table></div>`;
+// ---- FINANCEIRO: contas a receber da legalização e faturamento geral do escritório ----
+let legFin = { ano: new Date().getFullYear(), mes: -1, servico: '', situacao: 'todos' };
+const legAvisoSql = '<div class="card"><div class="card-body"><strong>Falta rodar o SQL da Legalização.</strong><br>No Supabase, abra o SQL Editor e rode o arquivo <code>adicionar_legalizacao.sql</code> (está na pasta do sistema).</div></div>';
+
+async function pagReceberLeg() {
+  const casos = await api('legalizacao_casos?select=*&order=created_at.desc');
+  if (!Array.isArray(casos)) { document.getElementById('content').innerHTML = legAvisoSql; return; }
+  window._legCasos = casos;
+  renderReceberLeg();
 }
 
-// Faturamento geral do escritório: honorários mensais recebidos + legalização recebida, mês a mês.
-async function renderLegGeral() {
-  const area = document.getElementById('leg-corpo');
-  area.innerHTML = '<div style="color:#9CA3AF;padding:20px">Calculando...</div>';
-  const ano = legEstado.ano;
-  const hon = await api(`honorarios_pagamentos?ano=eq.${ano}&select=mes,valor_recebido`);
+function renderReceberLeg() {
+  const casos = window._legCasos || [];
+  const { ano, mes, servico, situacao } = legFin;
+  const dataRef = (c) => String(c.data_contato || (c.created_at || '').slice(0, 10));
+  const anos = [...new Set([new Date().getFullYear(), ...casos.map(c => +dataRef(c).slice(0, 4))])].sort((a, b) => b - a);
+  const doPeriodo = casos.filter(c => c.fase !== 'nao_fechou' && +dataRef(c).slice(0, 4) === ano && (mes < 0 || +dataRef(c).slice(5, 7) - 1 === mes) && (!servico || c.servico === servico));
+  const recebido = doPeriodo.reduce((s, c) => s + (Number(c.valor_pago) || 0), 0);
+  const aReceber = doPeriodo.reduce((s, c) => s + legAReceber(c), 0);
+  const emProposta = doPeriodo.filter(c => c.fase === 'proposta').reduce((s, c) => s + (Number(c.valor) || 0), 0);
+  let lista = doPeriodo;
+  if (situacao === 'pendentes') lista = doPeriodo.filter(c => legAReceber(c) > 0);
+  else if (situacao === 'pagos') lista = doPeriodo.filter(c => legAReceber(c) === 0 && (Number(c.valor_pago) || 0) > 0);
+  lista = lista.slice().sort((a, b) => dataRef(a).localeCompare(dataRef(b)));
+  const dataBR = (d) => d ? String(d).slice(0, 10).split('-').reverse().join('/') : '—';
+  const tv = lista.reduce((s, c) => s + (Number(c.valor) || 0), 0), tp = lista.reduce((s, c) => s + (Number(c.valor_pago) || 0), 0), tr = lista.reduce((s, c) => s + legAReceber(c), 0);
+  const sel = 'height:36px;padding:0 10px;border-radius:8px;border:1px solid #E5E7EB;font-size:13px';
+  const sitBtn = (k, rotulo) => `<button class="btn btn-sm ${situacao === k ? 'btn-navy' : ''}" onclick="legFin.situacao='${k}';renderReceberLeg()">${rotulo}</button>`;
+  document.getElementById('content').innerHTML = `
+    <div class="page-header">
+      <div class="page-header-title">Legalização a receber — ${mes < 0 ? ano : meses[mes] + ' ' + ano}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <select onchange="legFin.mes=+this.value;renderReceberLeg()" style="${sel}"><option value="-1" ${mes < 0 ? 'selected' : ''}>O ano todo</option>${meses.map((m, i) => `<option value="${i}" ${i === mes ? 'selected' : ''}>${m}</option>`).join('')}</select>
+        <select onchange="legFin.ano=+this.value;renderReceberLeg()" style="${sel}">${anos.map(a => `<option value="${a}" ${a === ano ? 'selected' : ''}>${a}</option>`).join('')}</select>
+        <select onchange="legFin.servico=this.value;renderReceberLeg()" style="${sel}"><option value="">Todos os serviços</option>${Object.entries(LEG_SERVICOS).map(([k, n]) => `<option value="${k}" ${k === servico ? 'selected' : ''}>${n}</option>`).join('')}</select>
+      </div>
+    </div>
+    <div class="grid-4">
+      <div class="metric"><div class="metric-label">Serviços no período</div><div class="metric-value">${doPeriodo.length}</div><div class="metric-sub">iniciados neste período</div></div>
+      <div class="metric" style="border-left-color:var(--success)"><div class="metric-label">Recebido</div><div class="metric-value" style="color:var(--success)">${legMoeda(recebido)}</div></div>
+      <div class="metric" style="border-left-color:var(--danger)"><div class="metric-label">A receber</div><div class="metric-value" style="color:var(--danger)">${legMoeda(aReceber)}</div></div>
+      <div class="metric"><div class="metric-label">Em proposta</div><div class="metric-value">${legMoeda(emProposta)}</div><div class="metric-sub">ainda não fechado</div></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">${sitBtn('todos', 'Todos')}${sitBtn('pendentes', 'Pendentes')}${sitBtn('pagos', 'Pagos')}</div>
+    <div class="card"><table class="table"><thead><tr><th>Início</th><th>Cliente</th><th>Serviço</th><th>Fase</th><th style="text-align:right">Valor</th><th style="text-align:right">Pago</th><th style="text-align:right">A receber</th><th>Ação</th></tr></thead><tbody>
+      ${lista.map(c => `<tr><td>${dataBR(c.data_contato)}</td><td style="font-weight:500">${escaparTexto(c.nome)}</td><td>${LEG_SERVICOS[c.servico] || c.servico}</td><td>${LEG_FASE_NOME[c.fase] || c.fase}</td><td style="text-align:right">${legMoeda(c.valor)}</td><td style="text-align:right">${legMoeda(c.valor_pago)}</td><td style="text-align:right">${legAReceber(c) > 0 ? `<span style="color:var(--danger);font-weight:500">${legMoeda(legAReceber(c))}</span>` : '—'}</td><td><button class="btn btn-sm btn-navy" onclick="abrirBaixaLeg('${c.id}')"><i class="ti ti-cash"></i> Baixa</button></td></tr>`).join('') || '<tr><td colspan="8" style="text-align:center;padding:20px;color:#9CA3AF">Nenhum serviço neste período.</td></tr>'}
+    </tbody><tfoot><tr style="font-weight:600"><td colspan="4">Total</td><td style="text-align:right">${legMoeda(tv)}</td><td style="text-align:right">${legMoeda(tp)}</td><td style="text-align:right">${legMoeda(tr)}</td><td></td></tr></tfoot></table></div>
+    <div class="overlay" id="ov-leg-baixa" onclick="if(event.target===this)fecharModal('ov-leg-baixa')"><div class="modal" style="width:440px"><div id="leg-baixa-corpo"></div></div></div>`;
+}
+
+function abrirBaixaLeg(id) {
+  const c = window._legCasos.find(x => x.id === id);
+  window._baixaLeg = c;
+  const saldo = Math.max(0, (Number(c.valor) || 0) - (Number(c.valor_pago) || 0));
+  document.getElementById('leg-baixa-corpo').innerHTML = `
+    <div class="modal-title">Baixa — ${escaparTexto(c.nome)}</div>
+    <div class="modal-sub">${LEG_SERVICOS[c.servico] || ''} · Valor ${legMoeda(c.valor)} · Já pago ${legMoeda(c.valor_pago)} · Falta ${legMoeda(saldo)}</div>
+    <div class="form-grid-2" style="margin-bottom:16px">
+      <div class="field"><label>Valor recebido agora</label><input id="leg-baixa-valor" inputmode="numeric" value="${saldo ? formatarMoeda(saldo) : ''}" oninput="aplicarMascaraMoeda(this)"></div>
+      <div class="field"><label>Data do recebimento</label><input id="leg-baixa-data" type="date" value="${legHoje()}"></div>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn" onclick="fecharModal('ov-leg-baixa')">Cancelar</button><button class="btn btn-navy" onclick="salvarBaixaLeg()">Registrar recebimento</button></div>`;
+  document.getElementById('ov-leg-baixa').classList.add('show');
+}
+
+async function salvarBaixaLeg() {
+  const c = window._baixaLeg;
+  const v = valorMascaraParaNumero(document.getElementById('leg-baixa-valor').value || '') || 0;
+  if (v <= 0) { toast('Informe o valor recebido!', 'error'); return; }
+  const dados = { valor_pago: (Number(c.valor_pago) || 0) + v, data_pagamento: document.getElementById('leg-baixa-data').value || legHoje() };
+  if (['contato', 'proposta'].includes(c.fase)) dados.fase = 'fechou_pago';
+  const r = await api(`legalizacao_casos?id=eq.${c.id}`, 'PATCH', dados);
+  if (!Array.isArray(r)) { toast('Não consegui registrar. Tente novamente.', 'error'); return; }
+  const i = window._legCasos.findIndex(x => x.id === c.id);
+  if (i >= 0) window._legCasos[i] = { ...window._legCasos[i], ...dados };
+  fecharModal('ov-leg-baixa');
+  toast('Recebimento registrado!', 'success');
+  renderReceberLeg();
+}
+
+// Faturamento geral do escritório: o que entrou no mês (honorários mensais + legalização) e toda a inadimplência.
+async function pagFaturamentoGeral() {
+  await carregarDadosReceber();
+  const t = totaisReceberMes();
+  const casos = await api('legalizacao_casos?select=*');
+  const leg = Array.isArray(casos) ? casos : [];
+  const hon = await api(`honorarios_pagamentos?ano=eq.${anoSel}&select=mes,valor_recebido`);
   const honMes = Array(12).fill(0), legMes = Array(12).fill(0);
   (Array.isArray(hon) ? hon : []).forEach(h => { if (h.mes >= 0 && h.mes < 12) honMes[h.mes] += Number(h.valor_recebido) || 0; });
-  (window._legCasos || []).forEach(c => { const v = Number(c.valor_pago) || 0; const d = legDataPag(c); if (v && d && +String(d).slice(0, 4) === ano) legMes[+String(d).slice(5, 7) - 1] += v; });
+  leg.forEach(c => { const v = Number(c.valor_pago) || 0; const d = legDataPag(c); if (v && d && +String(d).slice(0, 4) === anoSel) legMes[+String(d).slice(5, 7) - 1] += v; });
+  const entrouHon = t.totalRecebido, entrouLeg = legMes[mesSel], entrouTotal = entrouHon + entrouLeg;
+  const abertoHon = t.totalAbertoAtivos + t.totalAbertoInativos, abertoLeg = leg.reduce((s, c) => s + legAReceber(c), 0), abertoTotal = abertoHon + abertoLeg;
+  const pendLeg = leg.filter(c => legAReceber(c) > 0).length;
   const th = honMes.reduce((a, b) => a + b, 0), tl = legMes.reduce((a, b) => a + b, 0);
-  area.innerHTML = `<div class="card"><table class="table"><thead><tr><th>Mês</th><th style="text-align:right">Honorários mensais</th><th style="text-align:right">Legalização</th><th style="text-align:right">Total do mês</th></tr></thead><tbody>
-    ${meses.map((m, i) => `<tr><td>${m}</td><td style="text-align:right">${legMoeda(honMes[i])}</td><td style="text-align:right">${legMoeda(legMes[i])}</td><td style="text-align:right;font-weight:600">${legMoeda(honMes[i] + legMes[i])}</td></tr>`).join('')}
-    </tbody><tfoot><tr style="font-weight:600"><td>Total de ${ano}</td><td style="text-align:right">${legMoeda(th)}</td><td style="text-align:right">${legMoeda(tl)}</td><td style="text-align:right">${legMoeda(th + tl)}</td></tr></tfoot></table></div>
-    <div style="font-size:12px;color:#6B7280">Honorários mensais = o que foi dado baixa em Contas a receber. Legalização = valor pago registrado em cada serviço, no mês do pagamento.</div>`;
+  document.getElementById('content').innerHTML = `
+    <div class="page-header">
+      <div class="page-header-title">Faturamento geral — ${meses[mesSel]} ${anoSel}</div>
+      <div style="display:flex;gap:8px">
+        <select onchange="mesSel=parseInt(this.value);pagFaturamentoGeral()" style="height:36px;padding:0 10px;border-radius:8px;border:1px solid #E5E7EB;font-size:13px">${meses.map((m, i) => `<option value="${i}" ${i === mesSel ? 'selected' : ''}>${m}</option>`).join('')}</select>
+        <input type="number" value="${anoSel}" onchange="anoSel=parseInt(this.value);pagFaturamentoGeral()" style="height:36px;width:80px;padding:0 10px;border-radius:8px;border:1px solid #E5E7EB;font-size:13px">
+      </div>
+    </div>
+    <div style="font-size:13px;font-weight:600;color:var(--navy);margin-bottom:8px">Entrou no mês</div>
+    <div class="grid-4" style="grid-template-columns:repeat(3,1fr)">
+      <div class="metric" style="border-left-color:var(--success)"><div class="metric-label">Honorários mensais</div><div class="metric-value" style="color:var(--success)">${fmt(entrouHon)}</div></div>
+      <div class="metric" style="border-left-color:var(--success)"><div class="metric-label">Legalização</div><div class="metric-value" style="color:var(--success)">${fmt(entrouLeg)}</div></div>
+      <div class="metric"><div class="metric-label">Total que entrou</div><div class="metric-value">${fmt(entrouTotal)}</div></div>
+    </div>
+    <div style="font-size:13px;font-weight:600;color:var(--navy);margin-bottom:8px">Inadimplência (em aberto)</div>
+    <div class="grid-4" style="grid-template-columns:repeat(3,1fr)">
+      <div class="metric" style="border-left-color:var(--danger)"><div class="metric-label">Honorários mensais</div><div class="metric-value" style="color:var(--danger)">${fmt(abertoHon)}</div><div class="metric-sub">${t.countInadimplente} cliente(s) inadimplente(s) · ativos + inativos</div></div>
+      <div class="metric" style="border-left-color:var(--danger)"><div class="metric-label">Legalização</div><div class="metric-value" style="color:var(--danger)">${fmt(abertoLeg)}</div><div class="metric-sub">${pendLeg} serviço(s) com valor a receber</div></div>
+      <div class="metric" style="border-left-color:var(--danger)"><div class="metric-label">Total em aberto</div><div class="metric-value" style="color:var(--danger)">${fmt(abertoTotal)}</div></div>
+    </div>
+    <div style="font-size:13px;font-weight:600;color:var(--navy);margin:8px 0">Mês a mês em ${anoSel}</div>
+    <div class="card"><table class="table"><thead><tr><th>Mês</th><th style="text-align:right">Honorários mensais</th><th style="text-align:right">Legalização</th><th style="text-align:right">Total do mês</th></tr></thead><tbody>
+      ${meses.map((m, i) => `<tr ${i === mesSel ? 'style="background:#FFFBEB"' : ''}><td>${m}</td><td style="text-align:right">${fmt(honMes[i])}</td><td style="text-align:right">${fmt(legMes[i])}</td><td style="text-align:right;font-weight:600">${fmt(honMes[i] + legMes[i])}</td></tr>`).join('')}
+    </tbody><tfoot><tr style="font-weight:600"><td>Total de ${anoSel}</td><td style="text-align:right">${fmt(th)}</td><td style="text-align:right">${fmt(tl)}</td><td style="text-align:right">${fmt(th + tl)}</td></tr></tfoot></table></div>
+    <div style="font-size:12px;color:#6B7280">Honorários mensais = o que foi dado baixa em Contas a receber. Legalização = valor recebido em cada serviço, no mês do recebimento. "Em aberto" dos honorários é o mesmo número da tela Contas a receber (ativos + inativos); o da legalização soma todos os serviços fechados com valor ainda a receber.${Array.isArray(casos) ? '' : ' (Legalização ainda sem dados: falta rodar o SQL adicionar_legalizacao.sql.)'}</div>`;
 }
 
 function legSincronizarCampos() {
@@ -4217,7 +4312,8 @@ function filtrarReceber() {
   document.getElementById('tb-receber').innerHTML = renderLinhasReceber(filtrados);
 }
 
-async function pagReceber() {
+// Carrega os dados de honorários do mês selecionado (mesSel/anoSel) e calcula o saldo devedor de cada cliente.
+async function carregarDadosReceber() {
   // Busca todo mundo (não só "Ativo") pra não esconder saldo devedor de quem foi
   // suspenso/cancelado ainda devendo — o honorário desses só não soma mais nada novo.
   const todosClientesReceber = await api('clientes?select=*&order=razao_social');
@@ -4231,13 +4327,13 @@ async function pagReceber() {
   // aparece na tela e respeita a pausa/retomada por status.
   todosClientesReceber.forEach(cl => { cl.honorario = honorarioNoMes(cl, mesSel, anoSel); });
   clientesReceberTodos = todosClientesReceber.filter(cl => (cl.status||'Ativo') === 'Ativo' || saldoDevedorMap[cl.id] > 0);
-  filtroReceberAtivo = 'todos';
+}
 
-  const c = document.getElementById('content');
+// Totais do mês selecionado (usa os dados já carregados por carregarDadosReceber).
+function totaisReceberMes() {
   let totalHonorarios = 0, totalSaldoDevedor = 0, totalRecebido = 0, totalSaldoFinal = 0;
   let totalAbertoAtivos = 0, totalAbertoInativos = 0;
   let countQuitado = 0, countAvencer = 0, countInadimplente = 0;
-  const countZerado = clientesReceberTodos.filter(cl => (cl.honorario||0) === 0).length;
   if (mesAntesDoRastreamento()) {
     countQuitado = clientesReceberTodos.length;
   } else {
@@ -4262,6 +4358,16 @@ async function pagReceber() {
       else totalAbertoInativos += saldoFinalCliente;
     });
   }
+  return { totalHonorarios, totalSaldoDevedor, totalRecebido, totalSaldoFinal, totalAbertoAtivos, totalAbertoInativos, countQuitado, countAvencer, countInadimplente };
+}
+
+async function pagReceber() {
+  await carregarDadosReceber();
+  filtroReceberAtivo = 'todos';
+
+  const c = document.getElementById('content');
+  const { totalHonorarios, totalSaldoDevedor, totalRecebido, totalSaldoFinal, totalAbertoAtivos, totalAbertoInativos, countQuitado, countAvencer, countInadimplente } = totaisReceberMes();
+  const countZerado = clientesReceberTodos.filter(cl => (cl.honorario||0) === 0).length;
 
   c.innerHTML = `
     <div class="page-header">

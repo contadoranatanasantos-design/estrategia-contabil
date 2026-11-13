@@ -2242,7 +2242,86 @@ async function pagLotes() {
         </div>
         <div id="area-duplicados" style="margin-top:12px"></div>
       </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">Corrigir o mês dos arquivos</div></div>
+      <div class="card-body">
+        <div style="font-size:13px;color:#4B5563;margin-bottom:12px">Anexou arquivos no mês errado? Escolha a pasta e o mês de onde eles saem e para onde vão. Você vê o resumo antes de confirmar, e só o que estiver na pasta escolhida é movido.</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <select id="mover-pasta" onchange="document.getElementById('area-mover').innerHTML=''" style="height:36px;padding:0 10px;border-radius:8px;border:1px solid #E5E7EB;font-size:13px">
+            <option value="guias">Guias de impostos</option><option value="nf">Notas fiscais</option><option value="situacao">Situação fiscal</option>
+          </select>
+          <span style="font-size:13px">de</span>
+          <select id="mover-de-mes" style="height:36px;padding:0 10px;border-radius:8px;border:1px solid #E5E7EB;font-size:13px">${meses.map((m,i)=>`<option value="${i}" ${i===mesSel?'selected':''}>${m}</option>`).join('')}</select>
+          <input id="mover-de-ano" type="number" value="${anoSel}" style="height:36px;width:80px;padding:0 10px;border-radius:8px;border:1px solid #E5E7EB;font-size:13px">
+          <span style="font-size:13px">para</span>
+          <select id="mover-para-mes" style="height:36px;padding:0 10px;border-radius:8px;border:1px solid #E5E7EB;font-size:13px">${meses.map((m,i)=>`<option value="${i}" ${i===(mesSel===0?11:mesSel-1)?'selected':''}>${m}</option>`).join('')}</select>
+          <input id="mover-para-ano" type="number" value="${mesSel===0?anoSel-1:anoSel}" style="height:36px;width:80px;padding:0 10px;border-radius:8px;border:1px solid #E5E7EB;font-size:13px">
+          <button class="btn" id="btn-ver-mover" onclick="prepararMoverMes()"><i class="ti ti-arrows-exchange"></i> Ver o que será movido</button>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;font-size:12px;color:#6B7280">
+          <label>Só o que foi anexado a partir do dia <small>(opcional)</small>:</label>
+          <input type="date" id="mover-desde" style="height:32px;padding:0 8px;border-radius:8px;border:1px solid #E5E7EB;font-size:12px">
+        </div>
+        <div id="area-mover" style="margin-top:12px"></div>
+      </div>
     </div>`;
+}
+
+// Corrigir o mês dos arquivos: mostra o que seria movido e, confirmado, troca o mês/ano dos documentos (e a marca "guia enviada").
+async function prepararMoverMes() {
+  const area = document.getElementById('area-mover');
+  const tipo = document.getElementById('mover-pasta').value;
+  const deMes = +document.getElementById('mover-de-mes').value, deAno = +document.getElementById('mover-de-ano').value;
+  const paraMes = +document.getElementById('mover-para-mes').value, paraAno = +document.getElementById('mover-para-ano').value;
+  const desde = document.getElementById('mover-desde').value;
+  if (deMes === paraMes && deAno === paraAno) { area.innerHTML = '<div style="color:var(--danger);font-size:13px">O mês de origem e o de destino são o mesmo.</div>'; return; }
+  area.innerHTML = '<div style="color:#9CA3AF">Procurando...</div>';
+  let docs = await api(`documentos?tipo=eq.${tipo}&mes=eq.${deMes}&ano=eq.${deAno}&select=id,cliente_id,nome_arquivo,created_at,subpasta`);
+  docs = Array.isArray(docs) ? docs.filter(d => !d.subpasta && (!desde || (d.created_at || '').slice(0, 10) >= desde)) : [];
+  const rotuloPasta = { guias: 'Guias de impostos', nf: 'Notas fiscais', situacao: 'Situação fiscal' }[tipo];
+  if (!docs.length) { area.innerHTML = `<div style="font-size:13px;color:#6B7280">Nenhum arquivo de "${rotuloPasta}" em ${meses[deMes]}/${deAno}${desde ? ' a partir dessa data' : ''}.</div>`; return; }
+  const clientes = await api('clientes?select=id,razao_social');
+  const nome = {}; (Array.isArray(clientes) ? clientes : []).forEach(c => { nome[c.id] = c.razao_social; });
+  const porCliente = {};
+  docs.forEach(d => { porCliente[d.cliente_id] = (porCliente[d.cliente_id] || 0) + 1; });
+  window._moverMes = { ids: docs.map(d => d.id), tipo, deMes, deAno, paraMes, paraAno, clientes: Object.keys(porCliente) };
+  const linhas = Object.entries(porCliente).sort((a, b) => (nome[a[0]] || '').localeCompare(nome[b[0]] || '', 'pt-BR')).map(([id, n]) => `<tr><td>${escaparTexto(nome[id] || '—')}</td><td style="text-align:center">${n}</td></tr>`).join('');
+  area.innerHTML = `
+    <div style="font-size:13px;margin-bottom:8px"><strong>${docs.length} arquivo(s)</strong> de <strong>${rotuloPasta}</strong>, de ${Object.keys(porCliente).length} cliente(s), sairão de <strong>${meses[deMes]}/${deAno}</strong> e irão para <strong>${meses[paraMes]}/${paraAno}</strong>.</div>
+    <div style="max-height:240px;overflow-y:auto;margin-bottom:12px"><table class="table"><thead><tr><th>Cliente</th><th style="text-align:center">Arquivos</th></tr></thead><tbody>${linhas}</tbody></table></div>
+    ${tipo === 'guias' ? '<label style="display:flex;gap:6px;align-items:center;font-size:13px;color:#4B5563;margin-bottom:12px;cursor:pointer"><input type="checkbox" id="mover-envios" checked> Levar junto a marca de "guia enviada" desses clientes (marque só se está movendo todas as guias do mês)</label>' : ''}
+    <button class="btn btn-navy" id="btn-confirmar-mover" onclick="executarMoverMes()"><i class="ti ti-arrows-exchange"></i> Mover ${docs.length} arquivo(s) para ${meses[paraMes]}/${paraAno}</button>`;
+}
+
+async function executarMoverMes() {
+  const m = window._moverMes;
+  if (!m || !m.ids.length) return;
+  if (!confirm(`Mover ${m.ids.length} arquivo(s) de ${meses[m.deMes]}/${m.deAno} para ${meses[m.paraMes]}/${m.paraAno}?`)) return;
+  const btn = document.getElementById('btn-confirmar-mover');
+  btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader"></i> Movendo...';
+  let movidos = 0, falhas = 0;
+  for (let i = 0; i < m.ids.length; i += 50) {
+    const lote = m.ids.slice(i, i + 50);
+    const r = await api(`documentos?id=in.(${lote.join(',')})`, 'PATCH', { mes: m.paraMes, ano: m.paraAno });
+    if (Array.isArray(r)) movidos += r.length; else falhas += lote.length;
+  }
+  // Marca "guia enviada": acompanha as guias (se já existir no mês de destino, só tira a duplicada).
+  let marcas = 0;
+  const levar = document.getElementById('mover-envios');
+  if (m.tipo === 'guias' && levar && levar.checked) {
+    const envios = await api(`envios_guias?mes=eq.${m.deMes}&ano=eq.${m.deAno}&select=id,cliente_id`);
+    const destino = await api(`envios_guias?mes=eq.${m.paraMes}&ano=eq.${m.paraAno}&select=cliente_id`);
+    const jaNoDestino = new Set((Array.isArray(destino) ? destino : []).map(e => e.cliente_id));
+    for (const e of (Array.isArray(envios) ? envios : []).filter(e => m.clientes.includes(e.cliente_id))) {
+      if (jaNoDestino.has(e.cliente_id)) await api(`envios_guias?id=eq.${e.id}`, 'DELETE');
+      else await api(`envios_guias?id=eq.${e.id}`, 'PATCH', { mes: m.paraMes, ano: m.paraAno });
+      marcas++;
+    }
+  }
+  window._moverMes = null;
+  toast(falhas ? `${movidos} movido(s), ${falhas} não deu(ram) certo.` : `${movidos} arquivo(s) movido(s) para ${meses[m.paraMes]}/${m.paraAno}!${marcas ? ` (${marcas} marca(s) de guia enviada também)` : ''}`, falhas ? 'error' : 'success');
+  pagLotes();
 }
 
 async function procurarDuplicadosDocumentos() {
@@ -3012,6 +3091,7 @@ function renderLoteResultado(clientes) {
         </tr>${item.pasta === 'nf' && item.nota ? linhaNotaLote(item, i) : ''}`).join('')}
       </tbody>
     </table>
+    <div style="margin-top:12px;padding:8px 12px;background:#FEF3C7;border-radius:8px;font-size:13px;color:#92400E">📅 As <strong>guias</strong> e a <strong>situação fiscal</strong> serão anexadas em <strong>${meses[mesSel]}/${anoSel}</strong> (mês escolhido no topo da tela). As <strong>notas fiscais</strong> vão para o mês da linha de cada nota. Se o mês estiver errado, troque lá em cima antes de anexar.</div>
     <div style="display:flex;gap:8px;margin-top:12px">
       <button class="btn btn-navy" id="btn-anexar-lote" onclick="anexarLote()"><i class="ti ti-upload"></i> Anexar todos (${window._loteArquivos.length})</button>
       <button class="btn btn-danger" onclick="cancelarLote()"><i class="ti ti-x"></i> Cancelar importação</button>
